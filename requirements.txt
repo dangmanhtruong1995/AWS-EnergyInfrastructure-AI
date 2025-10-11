@@ -18,4 +18,5 @@ contextily
 branca
 nltk
 utm
+PyPDF2
 
