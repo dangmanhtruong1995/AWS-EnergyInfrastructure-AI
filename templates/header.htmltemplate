@@ -1,0 +1,15 @@
+<div class="header-container">
+<div class="header-flex">
+    <div class="logo-wrapper">
+    {img_tag}
+    </div>
+    <div class="title-wrapper">
+        <h1>🌍 GeoAnalysis AI: UK Energy Prospect Finder</h1>
+        <p>Advanced AI-powered analysis for seismic data, drilling locations, and energy infrastructure</p>
+        <div class="status-bar">
+            <span class="status-indicator status-online"></span>
+            <span class="status-text">System Online</span>
+        </div>
+    </div>
+</div>
+</div>

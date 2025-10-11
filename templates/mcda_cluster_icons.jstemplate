@@ -1,0 +1,50 @@
+function(cluster) {
+    var markers = cluster.getAllChildMarkers();
+    var ranks = [];
+    var count = markers.length;
+    
+    // Extract rank data from marker properties
+    markers.forEach(function(marker) {
+        if (marker.options && marker.options.rank) {
+            ranks.push(marker.options.rank);
+        }
+    });
+    
+    var avgRank = ranks.length > 0 ? Math.round(ranks.reduce(function(a, b) { return a + b; }, 0) / ranks.length) : 0;
+    
+    // Color based on average rank (lower rank = better = greener)
+    var normalizedRank = avgRank <= 20 ? avgRank / 20.0 : 1.0;
+    var hue = (1 - normalizedRank) * 120; // 120 = green, 0 = red
+    var color = 'hsl(' + hue + ', 80%, 45%)';
+    
+    // Much larger clusters with bigger text
+    var size = Math.min(80, Math.max(60, 50 + count * 3));
+    var fontSize = Math.max(18, size / 3.5);  // Much larger main text
+    var smallFontSize = Math.max(13, size / 5);  // Much larger small text
+    
+    var html = '<div style="' +
+        'background-color:' + color + ';' +
+        'color: white;' +
+        'border-radius: 50%;' +
+        'width: ' + size + 'px;' +
+        'height: ' + size + 'px;' +
+        'display: flex;' +
+        'align-items: center;' +
+        'justify-content: center;' +
+        'font-weight: 900;' +  // Extra bold
+        'border: 4px solid white;' +
+        'box-shadow: 0 4px 12px rgba(0,0,0,0.6);' +
+        'text-shadow: 2px 2px 4px rgba(0,0,0,0.9);' +  // Much stronger text shadow
+        'font-family: Arial, sans-serif;' +
+        '">' +
+        '<div style="text-align: center; line-height: 1.0;">' +
+        '<div style="font-size: ' + fontSize + 'px; margin-bottom: 2px; font-weight: 900;">' + count + '</div>' +
+        '<div style="font-size: ' + smallFontSize + 'px; font-weight: 700;">Avg: ' + avgRank + '</div>' +
+        '</div></div>';
+    
+    return L.divIcon({
+        html: html,
+        className: 'custom-cluster-icon',
+        iconSize: L.point(size, size)
+    });
+}

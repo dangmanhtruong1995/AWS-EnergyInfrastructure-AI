@@ -1,0 +1,21 @@
+<div style="text-align: center; margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 12px;">
+                <h4 style="color: #2c3e50; margin-bottom: 10px;">📋 How to Use</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; text-align: left;">
+                    <div>
+                        <strong>1️⃣ Ask Questions:</strong><br>
+                        <span style="color: #6c757d;">Type natural language queries about energy data</span>
+                    </div>
+                    <div>
+                        <strong>2️⃣ Get Analysis:</strong><br>
+                        <span style="color: #6c757d;">AI processes your request and runs appropriate tools</span>
+                    </div>
+                    <div>
+                        <strong>3️⃣ View Results:</strong><br>
+                        <span style="color: #6c757d;">Receive detailed reports and interactive visualizations</span>
+                    </div>
+                    <div>
+                        <strong>4️⃣ Explore More:</strong><br>
+                        <span style="color: #6c757d;">Ask follow-up questions or request different analyses</span>
+                    </div>
+                </div>
+            </div>

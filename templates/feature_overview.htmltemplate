@@ -1,0 +1,18 @@
+<div class="features-container">
+<div class="feature-card">
+    <h3>🗺️ Seismic Analysis</h3>
+    <p>Analyze UK seismic activity patterns and identify high-activity regions for energy exploration</p>
+</div>
+<div class="feature-card">
+    <h3>🛢️ Well Data Integration</h3>
+    <p>Access comprehensive NSTA well database with detailed drilling reports and production data</p>
+</div>
+<div class="feature-card">
+    <h3>📊 Intelligent Mapping</h3>
+    <p>Generate interactive visualizations combining seismic surveys with drilling activity</p>
+</div>
+<div class="feature-card">
+    <h3>🎯 Prospect Identification</h3>
+    <p>Discover untapped areas with high seismic survey density but low recent drilling activity</p>
+</div>
+</div>
