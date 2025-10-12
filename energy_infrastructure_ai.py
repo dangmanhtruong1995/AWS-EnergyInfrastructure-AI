@@ -107,7 +107,8 @@ with zipfile.ZipFile('/tmp/source_modified.zip', 'w') as zipf:
                 zipf.write(os.path.join(root, file))
 
 # Upload modified zip
-bucket = f"bedrock-agentcore-{region}-436355390679"  # May vary
+# bucket = f"bedrock-agentcore-{region}-436355390679"  # May vary
+bucket = f"bedrock-agentcore-codebuild-sources-436355390679-{region}"
 key = f"{agent_name}/source.zip"
 
 try:
@@ -167,8 +168,22 @@ def query_agent(user_message, session_id):
         response = agentcore_runtime.invoke(payload)
 
         try:
-            # Get the response string
-            response_string = ''.join(response['response'])
+            # Get the response - handle both string and bytes
+            # response_string = ''.join(response['response'])
+
+            response_parts = response.get('response', [''])
+            
+            # Convert any bytes to strings
+            response_list = []
+            for part in response_parts:
+                if isinstance(part, bytes):
+                    response_list.append(part.decode('utf-8'))
+                else:
+                    response_list.append(str(part))
+            
+            response_string = ''.join(response_list)
+
+
             print(f"📝 Raw response length: {len(response_string)} chars")
             print(f"📝 Raw response preview: {response_string[:200]}...")
             
@@ -245,12 +260,12 @@ def generate_data_source_footer(used_sources: Set[str]) -> str:
 
 
 # Identify areas in the UK with high seismic survey density but low recent drilling activity
-# Show seismic events that fall within active licensed blocks
 # Perform a multi-criteria decision analysis for the licensing blocks in the UK, rank by safety, environment, technical and economic.
 # Find all wells which are within 10 kilometres of existing pipelines
 # Next, I want you to identify seismic activities which are within 10 kilometres of licence blocks
 # Do a scenario modeling for the licence blocks in the UK, with a focus on safety. 
 # What are the available data sources ?
+# Show all seismic events which fall into offshore fields
 
 # === Gradio Frontend ===
 def create_enhanced_interface():
@@ -352,19 +367,15 @@ def create_enhanced_interface():
             if html_content and response:
                 print("📝 HTML detected - generating summary of full report...")
                 summary_prompt = f"""Please provide a concise summary (2-3 sentences) of this analysis report, highlighting the key findings:
-
+QUERY:
+{message}
+                
+REPORT:
 {response[:2000]}  
 
 Keep the summary brief and actionable."""
                 
                 bedrock_client = boto3.client('bedrock-runtime', region_name=region)
-                
-                summary_prompt = f"""Provide a concise 2-3 sentence summary highlighting the key findings from this MCDA analysis report. Focus on the top-ranked locations and their scores. Do not perform any new analysis.
-
-Report excerpt:
-{response[:2000]}
-
-Summary:"""
                 
                 # Call Claude directly via Bedrock
                 bedrock_response = bedrock_client.converse(

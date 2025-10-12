@@ -10,6 +10,11 @@ class DataSourceTracker:
     report: Set[str] = field(default_factory=set)
 
 
+class ReportMapOutput(BaseModel):
+    """ Output with report and map"""
+    report: str
+    map: str
+
 class AvailableDataSources(BaseModel):
     """ A list of available data sources."""
     data_source_list: List[str]

@@ -20,6 +20,9 @@ from config import DATASETS, DATASET_LIST
 
 # from schemas import DataSourceTracker
 
+from tools import analyse_and_plot_features_and_nearby_infrastructure,\
+    analyse_and_plot_within_op
+from schemas import ReportMapOutput
 # from tools import analyse_using_mcda_then_plot
     # get_drilling_and_production_data_source,\
     # get_ukcs_licensed_blocks_data_source,\
@@ -77,8 +80,8 @@ def get_available_data_sources(run_context: RunContext):
 app = BedrockAgentCoreApp()
 
 # model = BedrockConverseModel('us.anthropic.claude-sonnet-4-20250514-v1:0')
-# model = BedrockConverseModel('us.anthropic.claude-sonnet-4-5-20250929-v1:0')
-model = BedrockConverseModel('us.anthropic.claude-3-5-haiku-20241022-v1:0')
+model = BedrockConverseModel('us.anthropic.claude-sonnet-4-5-20250929-v1:0')
+# model = BedrockConverseModel('us.anthropic.claude-3-5-haiku-20241022-v1:0')
 
 model_settings = ModelSettings(
     max_retries=6,  # Retry on throttling
@@ -90,7 +93,16 @@ dummy_agent = Agent(
     # deps_type=DataSourceTracker,
     tools=[
         # get_available_data_sources,
-        Tool(function=get_available_data_sources, takes_ctx=True)
+        Tool(
+            function=get_available_data_sources,
+            takes_ctx=True, 
+            description="Get list of available datasets"
+        ),
+        # Tool(
+        #     function=analyse_and_plot_features_and_nearby_infrastructure, 
+        #     takes_ctx=True,
+        #     description="Find and plot features within a distance threshold. Use for queries like 'wells within 10km of pipelines'",
+        # ),
 
 
         # get_seismic_data_source, 
@@ -111,13 +123,16 @@ dummy_agent = Agent(
     # system_prompt=""""You're a helpful assistant. Use the tools available for you to answer questions.""",
 
     system_prompt="""
-You are a data analysis agent. 
+You're a helpful assistant. Use the tools available for you to answer questions.
 
-When the user asks about available data sources, call get_available_data_sources and provide a natural language summary.
+"""
+# You are a data analysis agent. 
 
-When the user asks for analysis (MCDA, scenario analysis, etc.), call mcda which will return structured results.
+# When the user asks about available data sources, call get_available_data_sources and provide a natural language summary.
 
-IMPORTANT: After calling a tool once and getting its result, provide your answer. Do NOT call the same tool repeatedly."""
+# When the user asks for analysis (MCDA, scenario analysis, etc.), call mcda which will return structured results.
+
+# IMPORTANT: After calling a tool once and getting its result, provide your answer. Do NOT call the same tool repeatedly."""
 
 # You are a data analysis agent. Your primary function is to execute the available tools to answer the user's request.
 
@@ -153,12 +168,14 @@ def pydantic_bedrock_claude_main(payload):
 
     user_input = payload.get("prompt")
     result = dummy_agent.run_sync(user_input,
-            output_type=[mcda, str],  # Functions passed here!
+            output_type=[
+                mcda,
+                analyse_and_plot_features_and_nearby_infrastructure,
+                analyse_and_plot_within_op,
+                str],  # Functions passed here!
             model_settings=model_settings,                   
         )
     print(result.output)
-    # return result.output, result.all_messages # To get output of tools
-    # return result
     return result.output
 
 if __name__ == "__main__":

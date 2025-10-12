@@ -36,11 +36,12 @@ from os.path import join as pjoin
 import boto3
 
 # from config import BASE_PATH, DATASETS, DATASET_LIST, DATASET_LEGEND_DICT
+from config import DATASET_LEGEND_DICT, DATASET_LIST
 from utils import calculate_distance, load_data_and_process
-# from schemas import DataSourceTracker, GetWellEntryInput,\
-#     WellEntryOutput, DataSourceOutput, SeismicAndDrillingInput,\
-#     SeismicAndDrillingOutput, PlotOutput, SeismicAndLicensedBlocksInput,\
-#     AnalysisOutput, AvailableDataSources
+from schemas import DataSourceTracker, GetWellEntryInput,\
+    WellEntryOutput, DataSourceOutput, SeismicAndDrillingInput,\
+    SeismicAndDrillingOutput, PlotOutput, SeismicAndLicensedBlocksInput,\
+    AnalysisOutput, AvailableDataSources, ReportMapOutput
 # from document_processor import extract_text_from_pdf
 # from data_loader import get_coords
 # from seismic_analysis_python import SeismicDrillingAnalyzer
@@ -240,7 +241,760 @@ def mcda(run_context: RunContext, target:str, obj_1: str, obj_2: str, obj_3: str
     # return report
 
     # Return structured data as JSON string
-    import json
+
+    result = {
+        'report': report,
+        'map_html': map_html
+    }
+    
+    return json.dumps(result)
+
+
+def within_op(layer_1: str, layer_2:str) -> gpd.GeoDataFrame:
+    """ Perform a "within" operation, such as "Find all seismic events within licensed blocks".
+    Args:
+        layer_1: The first layer. For the example query "Find all seismic events within licensed blocks", the layer would be "seismic". The layer name should be chosen from the results of "get_available_data_sources".
+        layer_2: The second layer. For the example query "Find all seismic events within licensed blocks", the layer would be "licences". The layer name should be chosen from the results of "get_available_data_sources".
+    Return:
+        df_rank: A GeoPandas's GeoDataFrame which lists the matched entries.
+    """
+
+    df_dict = {}
+    df_dict[layer_1] = load_data_and_process(layer_1)
+    df_dict[layer_2] = load_data_and_process(layer_2)
+    
+    if isinstance(df_dict[layer_1], pd.DataFrame):
+        if 'Lon' in df_dict[layer_1].columns:
+            geometry = [Point(xy) for xy in zip(df_dict[layer_1].Lon, df_dict[layer_1].Lat)]
+            df_dict[layer_1] = df_dict[layer_1].drop(['Lon', 'Lat'], axis=1)
+        else:
+            geometry = df_dict[layer_1]["geometry"]
+        df_dict[layer_1] = gpd.GeoDataFrame(df_dict[layer_1], crs="EPSG:4326", geometry=geometry)
+
+    if isinstance(df_dict[layer_2], pd.DataFrame):
+        if 'Lon' in df_dict[layer_2].columns:
+            geometry = [Point(xy) for xy in zip(df_dict[layer_2].Lon, df_dict[layer_2].Lat)]
+            df_dict[layer_2] = df_dict[layer_2].drop(['Lon', 'Lat'], axis=1)
+        else:
+            geometry = df_dict[layer_2]["geometry"]
+        df_dict[layer_2] = gpd.GeoDataFrame(df_dict[layer_2], crs="EPSG:4326", geometry=geometry)
+
+    try:
+        utm_crs = df_dict[layer_1].estimate_utm_crs()
+        df_dict[layer_1] = df_dict[layer_1].to_crs(utm_crs)
+        df_dict[layer_2] = df_dict[layer_2].to_crs(utm_crs)
+    except:
+        pass
+
+    n_within = np.zeros(len(df_dict[layer_1]))
+    for idx in range(len(df_dict[layer_1])):
+        row_geometry = df_dict[layer_1]["geometry"].iloc[idx]
+        contains = row_geometry.contains(df_dict[layer_2]["geometry"])
+        n_within[idx] = np.sum(contains)
+
+    df_dict[layer_1]["Score"] = n_within.tolist()
+    df_rank = df_dict[layer_1].sort_values("Score", ascending=False).copy()    
+    df_rank = df_rank[df_rank["Score"] > 0]
+
+    try:
+        df_rank = df_rank.to_crs(epsg=4326)
+    except:
+        pass
+
+    return df_rank
+
+
+def within_dist_op(layer_1:str, layer_2:str, dist=10):
+    """ Perform a "within distance" operation, such as "Find all licencing blocks which are within 10 kilometres of pipelines".
+    Args:
+        layer_1: The first layer. For the example query "Find all licencing blocks which are within 10 kilometres of pipelines", the layer would be "licences". The layer name should be chosen from the results of "get_available_data_sources".
+        layer_2: The second layer. For the example query "Find all licencing blocks which are within 10 kilometres of pipelines", the layer would be "pipelines". The layer name should be chosen from the results of "get_available_data_sources".
+    Return:
+        df_rank: A GeoPandas's GeoDataFrame which lists the matched entries.
+    """
+    
+    df_dict = {}
+    df_dict[layer_1] = load_data_and_process(layer_1)
+    df_dict[layer_2] = load_data_and_process(layer_2)
+
+    if isinstance(df_dict[layer_1], pd.DataFrame):
+        if 'Lon' in df_dict[layer_1].columns:
+            geometry = [Point(xy) for xy in zip(df_dict[layer_1].Lon, df_dict[layer_1].Lat)]
+            df_dict[layer_1] = df_dict[layer_1].drop(['Lon', 'Lat'], axis=1)
+        else:
+            geometry = df_dict[layer_1]["geometry"]
+        df_dict[layer_1] = gpd.GeoDataFrame(df_dict[layer_1], crs="EPSG:4326", geometry=geometry)
+
+    if isinstance(df_dict[layer_2], pd.DataFrame):
+        if 'Lon' in df_dict[layer_2].columns:
+            geometry = [Point(xy) for xy in zip(df_dict[layer_2].Lon, df_dict[layer_2].Lat)]
+            df_dict[layer_2] = df_dict[layer_2].drop(['Lon', 'Lat'], axis=1)
+        else:
+            geometry = df_dict[layer_2]["geometry"]
+        df_dict[layer_2] = gpd.GeoDataFrame(df_dict[layer_2], crs="EPSG:4326", geometry=geometry)
+
+    try:
+        utm_crs = df_dict[layer_1].estimate_utm_crs()
+        df_dict[layer_1] = df_dict[layer_1].to_crs(utm_crs)
+        df_dict[layer_2] = df_dict[layer_2].to_crs(utm_crs)
+    except:
+        pass
+    
+    # Nearest join (one match per row in df1)
+    df_nearest = gpd.sjoin_nearest(
+        df_dict[layer_1], df_dict[layer_2],
+        how="left",
+        distance_col="Score",
+        max_distance=None  # set to dist if you want filtering here
+    )
+
+    # Convert meters → km
+    #df_nearest["Score"] = df_nearest["Score"] / 1000.0
+    df_nearest["Score"] = df_nearest["Score"] *1000.0
+    
+    # Align back to df1 index (handles duplicates safely)
+    df_dict[layer_1]["Score"] = df_nearest.groupby(level=0)["Score"].first()
+    df_rank = df_dict[layer_1][df_dict[layer_1]["Score"] <= dist].sort_values("Score")
+
+    try:
+        df_rank = df_rank.to_crs(epsg=4326)
+    except:
+        pass
+
+    return df_rank
+
+
+def analyse_and_plot_features_and_nearby_infrastructure(run_context: RunContext[DataSourceTracker], layer_1: str, layer_2: str, max_distance=10):
+    """
+    Analyse, then plot infrastructures in layer_1 that are close to those in layer_2
+    
+    Args:
+        layer_1: layer containing point features (e.g., wells, facilities, stations). Layer names can be one of the available data source names (e.g. "wells").
+        layer_2: layer containing linear infrastructure (e.g., pipelines, roads, cables). Layer names can be one of the available data source names (e.g. "pipelines").
+        max_distance: maximum distance in km
+
+    Return: A JSON containing the following:
+        report: The final report in text form.
+        map_html: The map HTML.
+    """
+    
+    print(run_context)
+    print()
+
+    # Load the data. If the name doesn't match, try to search for closest match.
+    try:
+        df_points_ranked = within_dist_op(layer_1, layer_2, max_distance)
+        df_lines = load_data_and_process(layer_2)
+    except KeyError:
+        dist_list = [nltk.edit_distance(layer_1, elem) for elem in DATASET_LIST]
+        layer_1 = DATASET_LIST[np.argmin(dist_list)]
+
+        dist_list = [nltk.edit_distance(layer_2, elem) for elem in DATASET_LIST]
+        layer_2 = DATASET_LIST[np.argmin(dist_list)]
+
+        df_points_ranked = within_dist_op(layer_1, layer_2, max_distance)
+        df_lines = load_data_and_process(layer_2)
+
+    if isinstance(df_lines, pd.DataFrame):
+        if 'Lon' in df_lines.columns:
+            geometry = [Point(xy) for xy in zip(df_lines.Lon, df_lines.Lat)]
+            df_lines = df_lines.drop(['Lon', 'Lat'], axis=1)
+        else:
+            geometry = df_lines["geometry"]
+        df_lines = gpd.GeoDataFrame(df_lines, crs="EPSG:4326", geometry=geometry)
+    
+    print(f"Layer 1: {layer_1}")
+    print(f"Layer 2: {layer_2}")
+    print()
+
+    # Add data sources to tracker
+    # layer_list = [layer_1, layer_2]
+    # for layer_name in layer_list:
+    #     if layer_name == "seismic":
+    #         run_context.deps.used_sources.add("UK BGS earthquake data, from https://www.earthquakes.bgs.ac.uk/earthquakes/recent_uk_events.html")
+    #     elif layer_name == "drilling":
+    #         run_context.deps.used_sources.add("UKCS daily production data")
+    #     else:
+    #         run_context.deps.used_sources.add(f"UKCS licensed blocks data ({layer_name}), from https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8")
+
+    # Calculate the center point based on the data
+    if len(df_points_ranked) > 0:
+        # Get bounds of the point data
+        bounds = df_points_ranked.bounds
+        center_lat = (bounds.miny.min() + bounds.maxy.max()) / 2
+        center_lon = (bounds.minx.min() + bounds.maxx.max()) / 2
+        
+        # Calculate appropriate zoom level based on data extent
+        lat_range = bounds.maxy.max() - bounds.miny.min()
+        lon_range = bounds.maxx.max() - bounds.minx.min()
+        max_range = max(lat_range, lon_range)
+        
+        # Rough zoom level calculation (adjust as needed)
+        if max_range > 10:
+            zoom_level = 5
+        elif max_range > 5:
+            zoom_level = 6
+        elif max_range > 2:
+            zoom_level = 7
+        elif max_range > 1:
+            zoom_level = 8
+        else:
+            zoom_level = 9
+    else:
+        # Fallback to UK center if no data
+        center_lat, center_lon = 55.3781, -1.4360
+        zoom_level = 6
+    
+    # Create the map centered on UK
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_level,
+        # location=[55.3781, -1.4360],  # UK center
+        # zoom_start=6,
+        tiles="cartodb positron",
+        width='100%',
+        height='600px'
+    )
+    
+    # Find which line infrastructure is near the selected point features
+    # We'll use a buffer around the points to find intersecting lines
+    utm_crs = df_points_ranked.estimate_utm_crs()
+    df_points_utm = df_points_ranked.to_crs(utm_crs)
+    df_lines_utm = df_lines.to_crs(utm_crs)
+    
+    # Create buffer around point features (in meters)
+    buffer_distance = max_distance * 1000  # convert km to meters
+    points_buffered = df_points_utm.copy()
+    points_buffered['geometry'] = points_buffered['geometry'].buffer(buffer_distance)
+    
+    # Find line infrastructure that intersects with the buffered points
+    nearby_lines = gpd.sjoin(df_lines_utm, points_buffered, predicate='intersects')
+    nearby_lines = nearby_lines.drop_duplicates(subset=['Name_left'])  # Remove duplicate lines
+    nearby_lines = nearby_lines.to_crs(epsg=4326)
+    
+    # Convert point features back to WGS84 for plotting
+    df_points_to_plot = df_points_ranked.to_crs(epsg=4326)
+    
+    # Plot the line infrastructure first (so they appear under the points)
+    for index, row in nearby_lines.iterrows():
+        try:
+            geom = row["geometry"]
+            popup_text = f"""
+            <b>{DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</b><br>
+            Name: {row.get('Name_left', 'Unknown')}<br>
+            Type: Infrastructure
+            """
+
+            if geom.geom_type == 'LineString':
+                # Single LineString
+                coords = list(geom.coords)
+                folium_coords = [[lat, lon] for lon, lat in coords]
+                
+                folium.PolyLine(
+                    locations=folium_coords,
+                    popup=folium.Popup(popup_text, max_width=300),
+                    tooltip=f"{layer_2.title()}: {row.get('Name_left', 'Unknown')}",
+                    color='blue',
+                    weight=3,
+                    opacity=0.8
+                ).add_to(m)
+                
+            elif geom.geom_type == 'MultiLineString':
+                # Multiple LineString segments
+                for line in geom.geoms:
+                    coords = list(line.coords)
+                    folium_coords = [[lat, lon] for lon, lat in coords]
+                    
+                    folium.PolyLine(
+                        locations=folium_coords,
+                        popup=folium.Popup(popup_text, max_width=300),
+                        tooltip=f"{layer_2.title()}: {row.get('Name_left', 'Unknown')}",
+                        color='blue',
+                        weight=3,
+                        opacity=0.8
+                    ).add_to(m)
+
+            elif geom.geom_type == 'Polygon':
+                # Extract exterior coordinates
+                exterior_coords = list(geom.exterior.coords)
+                folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+                
+                folium.Polygon(
+                    locations=folium_coords,
+                    popup=folium.Popup(popup_text, max_width=300),
+                    tooltip=f"{layer_2.title()}: {row.get('Name_left', 'Unknown')}",
+                    color='blue',
+                    weight=2,
+                    opacity=0.8,
+                    fillColor='lightblue',
+                    fillOpacity=0.3
+                ).add_to(m)
+            
+            elif geom.geom_type == 'MultiPolygon':
+                for polygon in geom.geoms:
+                    exterior_coords = list(polygon.exterior.coords)
+                    folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+                    
+                    folium.Polygon(
+                        locations=folium_coords,
+                        popup=folium.Popup(popup_text, max_width=300),
+                        tooltip=f"{layer_2.title()}: {row.get('Name_left', 'Unknown')}",
+                        color='blue',
+                        weight=2,
+                        opacity=0.8,
+                        fillColor='lightblue',
+                        fillOpacity=0.3
+                    ).add_to(m)
+            
+            elif geom.geom_type == 'Point':
+                lat = geom.y
+                lon = geom.x
+                
+                if -90 <= lat <= 90 and -180 <= lon <= 180:
+                    folium.Marker(
+                        location=[lat, lon],
+                        popup=folium.Popup(popup_text, max_width=300),
+                        tooltip=f"{layer_2.title()}: {row.get('Name_left', 'Unknown')}",
+                        icon=folium.Icon(color='blue', icon='info-sign')
+                    ).add_to(m)
+                
+        except Exception as e:
+            print(f"Error plotting {layer_2} {index}: {e}")
+            continue
+    
+    # Plot the point features
+    points_added = 0
+    for index, row in df_points_to_plot.iterrows():
+        try:
+            geom = row["geometry"]
+            # set_trace()
+            popup_text = f"""
+            <b>{DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</b><br>
+            Name: {row.get('Name_left', 'Unknown')}<br>
+            Distance to {layer_2.title()}: {row['Score']:.3f} km<br> 
+            Status: {row.get('ORIGINSTAT', 'N/A')}
+            """
+            
+            # Handle both LineString and MultiLineString geometries
+            if geom.geom_type == 'LineString':
+                # Single LineString
+                coords = list(geom.coords)
+                folium_coords = [[lat, lon] for lon, lat in coords]
+                
+                folium.PolyLine(
+                    locations=folium_coords,
+                    popup=folium.Popup(popup_text, max_width=300),
+                    tooltip=f"{layer_1.title()}: {row.get('Name_left', 'Unknown')}",
+                    color='red',
+                    weight=3,
+                    opacity=0.8
+                ).add_to(m)
+                points_added += 1
+                
+            elif geom.geom_type == 'MultiLineString':
+                # Multiple LineString segments
+                for line in geom.geoms:
+                    coords = list(line.coords)
+                    folium_coords = [[lat, lon] for lon, lat in coords]
+                    
+                    folium.PolyLine(
+                        locations=folium_coords,
+                        popup=folium.Popup(popup_text, max_width=300),
+                        tooltip=f"{layer_1.title()}: {row.get('Name_left', 'Unknown')}",
+                        color='red',
+                        weight=3,
+                        opacity=0.8
+                    ).add_to(m)
+                points_added += 1
+
+            # Handle Polygon geometries - NEW
+            elif geom.geom_type == 'Polygon':
+                # Extract exterior coordinates
+                exterior_coords = list(geom.exterior.coords)
+                folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+                
+                folium.Polygon(
+                    locations=folium_coords,
+                    popup=folium.Popup(popup_text, max_width=300),
+                    tooltip=f"{layer_1.title()}: {row.get('Name_left', 'Unknown')}",
+                    color='red',
+                    weight=2,
+                    opacity=0.8,
+                    fillColor='lightblue',
+                    fillOpacity=0.3
+                ).add_to(m)
+                points_added += 1
+            
+            # Handle MultiPolygon geometries - NEW
+            elif geom.geom_type == 'MultiPolygon':
+                for polygon in geom.geoms:
+                    exterior_coords = list(polygon.exterior.coords)
+                    folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+                    
+                    folium.Polygon(
+                        locations=folium_coords,
+                        popup=folium.Popup(popup_text, max_width=300),
+                        tooltip=f"{layer_1.title()}: {row.get('Name_left', 'Unknown')}",
+                        color='red',
+                        weight=2,
+                        opacity=0.8,
+                        fillColor='lightblue',
+                        fillOpacity=0.3
+                    ).add_to(m)
+                points_added += 1
+            
+            # Handle Point geometries (in case layer_2 contains points) - NEW
+            elif geom.geom_type == 'Point':
+                lat = geom.y
+                lon = geom.x
+                
+                # if -90 <= lat <= 90 and -180 <= lon <= 180:
+                folium.Marker(
+                    location=[lat, lon],
+                    popup=folium.Popup(popup_text, max_width=300),
+                    tooltip=f"{layer_1.title()}: {row.get('Name_left', 'Unknown')}",
+                    icon=folium.Icon(color='red', icon='info-sign')
+                ).add_to(m)
+                points_added += 1
+                
+        except Exception as e:
+            print(f"Error plotting {layer_1} {index}: {e}")
+            continue   
+    
+    print(f"Successfully added {points_added} {layer_1} and {len(nearby_lines)} {layer_2} to the map")
+    
+    # Enhanced legend
+    row = df_points_ranked.iloc[0, :]
+    geom = row["geometry"]
+    if geom.geom_type == 'LineString':
+        legend_text_1 = f'<p><span style="color:red; font-weight:bold;">━━</span> {DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</p>'                
+    elif geom.geom_type == 'MultiLineString':
+        legend_text_1 = f'<p><span style="color:red; font-weight:bold;">━━</span> {DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</p>'
+    elif geom.geom_type == 'Polygon':
+        legend_text_1 = f'<span style="color:red; border: 1px solid blue; background-color:lightblue; padding:2px 6px; display:inline-block;">▭ {DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</span>'
+    elif geom.geom_type == 'MultiPolygon':
+        legend_text_1 = f'<span style="color:red; border: 1px solid blue; background-color:lightblue; padding:2px 6px; display:inline-block;">▭ {DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</span>'
+    elif geom.geom_type == 'Point':
+        legend_text_1 = f"<p><i class='fa fa-map-marker' style='color:red'></i> {DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</p>"
+
+    row = df_lines.iloc[0, :]
+    geom = row["geometry"]
+    if geom.geom_type == 'LineString':
+        legend_text_2 = f'<p><span style="color:blue; font-weight:bold;">━━</span> {DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</p>'                
+    elif geom.geom_type == 'MultiLineString':
+        legend_text_2 = f'<p><span style="color:blue; font-weight:bold;">━━</span> {DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</p>'
+    elif geom.geom_type == 'Polygon':
+        legend_text_2 = f'<span style="color:blue; border: 1px solid blue; background-color:lightblue; padding:2px 6px; display:inline-block;">▭ {DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</span>'
+    elif geom.geom_type == 'MultiPolygon':
+        legend_text_2 = f'<span style="color:blue; border: 1px solid blue; background-color:lightblue; padding:2px 6px; display:inline-block;">▭ {DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</span>'
+    elif geom.geom_type == 'Point':
+        legend_text_2 = f"<p><i class='fa fa-map-marker' style='color:blue'></i> {DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</p>"
+   
+    legend_html = f'''
+    <div style="position: fixed; 
+                top: 10px; right: 10px; width: 250px; height: 140px; 
+                background-color: white; border:2px solid grey; z-index:9999; 
+                font-size:14px; padding: 10px">
+    <h4>Legend</h4>
+    {legend_text_1}
+    {legend_text_2}
+    </div>
+    '''
+    """
+    legend_html = f'''
+    <div style="position: fixed; 
+                top: 10px; right: 10px; width: 250px; height: 140px; 
+                background-color: white; border:2px solid grey; z-index:9999; 
+                font-size:14px; padding: 10px">
+    <h4>Legend</h4>
+    <p><i class="fa fa-map-marker" style="color:red"></i> {DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</p>
+    <p><span style="color:blue; font-weight:bold;">━━</span> {DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</p>    
+    </div>
+    '''
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
+
+    map_html = m.get_root().render()
+
+    # Generate report
+    df_points_ranked["Coordinates"] = df_points_ranked["geometry"].centroid
+    df_points_ranked = df_points_ranked.drop('geometry', axis=1)
+    try:
+        df_points_ranked = df_points_ranked.drop('ORIGINSTAT', axis=1)
+    except:
+        pass
+    report = df_points_ranked.to_string(index=False)
+    report = f"REPORT of {layer_1} assets which are close to {max_distance} kilometres of {layer_2} assets : \n\n" + report
+    
+    print(report)
+    print()
+
+    result = {
+        'report': report,
+        'map_html': map_html
+    }
+    
+    return json.dumps(result)
+
+    # return report
+
+
+def analyse_and_plot_within_op(run_context: RunContext[DataSourceTracker], layer_1: str, layer_2: str):
+    """
+    Analyse, then plot features in layer_1 that are within (contained by) features in layer_2.
+    
+    Args:
+        layer_1: The layer containing features to check if they fall within layer_2 (e.g., "wells", "seismic", "drilling"). 
+                 These are typically point features or smaller geometries.
+        layer_2: The layer containing container features (e.g., "licences", "offshore_fields"). 
+                 These are typically polygon features that can contain layer_1 features.
+    
+    Examples:
+        - "Find all wells which are within licence blocks" → layer_1="wells", layer_2="licences"        
+        - "Find drilling locations within licensed blocks" → layer_1="drilling", layer_2="licences"
+        - "Show wells within offshore fields" → layer_1="wells", layer_2="offshore_fields"
+
+
+    Return: A JSON containing the following:
+        report: The final report in text form.
+        map_html: The map HTML.
+    """
+    print(run_context)
+    print()
+
+    print(f"Layer 1: {layer_1}")
+    print(f"Layer 2: {layer_2}")
+
+    # Load the data. If the name doesn't match, try to search for closest match.
+    if layer_1 not in DATASET_LIST:
+        dist_list = [nltk.edit_distance(layer_1, elem) for elem in DATASET_LIST]
+        layer_1 = DATASET_LIST[np.argmin(dist_list)]
+
+    if layer_2 not in DATASET_LIST:
+        dist_list = [nltk.edit_distance(layer_2, elem) for elem in DATASET_LIST]
+        layer_2 = DATASET_LIST[np.argmin(dist_list)]
+
+    df_rank = within_op(layer_1, layer_2)
+    if len(df_rank) == 0:
+        temp = layer_1
+        layer_1 = layer_2
+        layer_2 = temp
+
+        df_rank = within_op(layer_1, layer_2)
+    df_layer2 = load_data_and_process(layer_2)
+
+    print("df_rank")
+    print(df_rank)
+
+    if isinstance(df_layer2, pd.DataFrame):
+        if 'Lon' in df_layer2.columns:
+            geometry = [Point(xy) for xy in zip(df_layer2.Lon, df_layer2.Lat)]
+            df_layer2 = df_layer2.drop(['Lon', 'Lat'], axis=1)
+        else:
+            geometry = df_layer2["geometry"]
+        df_layer2 = gpd.GeoDataFrame(df_layer2, crs="EPSG:4326", geometry=geometry)
+    
+    print(f"Layer 1: {layer_1}")
+    print(f"Layer 2: {layer_2}")
+    print()
+
+    # Add data sources to tracker
+    # layer_list = [layer_1, layer_2]
+    # for layer_name in layer_list:
+    #     if layer_name == "seismic":
+    #         run_context.deps.used_sources.add("UK BGS earthquake data, from https://www.earthquakes.bgs.ac.uk/earthquakes/recent_uk_events.html")
+    #     elif layer_name == "drilling":
+    #         run_context.deps.used_sources.add("UKCS daily production data")
+    #     else:
+    #         run_context.deps.used_sources.add(f"UKCS licensed blocks data ({layer_name}), from https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8")
+
+    # Calculate center and zoom
+    if len(df_rank) > 0:
+        bounds = df_rank.bounds
+        center_lat = (bounds.miny.min() + bounds.maxy.max()) / 2
+        center_lon = (bounds.minx.min() + bounds.maxx.max()) / 2
+        
+        lat_range = bounds.maxy.max() - bounds.miny.min()
+        lon_range = bounds.maxx.max() - bounds.minx.min()
+        max_range = max(lat_range, lon_range)
+        
+        if max_range > 10:
+            zoom_level = 5
+        elif max_range > 5:
+            zoom_level = 6
+        elif max_range > 2:
+            zoom_level = 7
+        elif max_range > 1:
+            zoom_level = 8
+        else:
+            zoom_level = 9
+    else:
+        center_lat, center_lon = 55.3781, -1.4360
+        zoom_level = 6
+    
+    # Create map
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_level,
+        tiles="cartodb positron",
+        width='100%',
+        height='600px'
+    )
+    
+    # Convert to WGS84 for plotting
+    df_rank_plot = df_rank.to_crs(epsg=4326)
+    df_layer2_plot = df_layer2.to_crs(epsg=4326)
+    
+    # Find which layer_2 features are within layer_1 features
+    # utm_crs = df_rank.estimate_utm_crs()
+    utm_crs = df_rank.to_crs(epsg=4326).estimate_utm_crs()
+    df_rank_utm = df_rank.to_crs(utm_crs)
+    df_layer2_utm = df_layer2.to_crs(utm_crs)
+    
+    # Spatial join to find contained features
+    contained_layer2 = gpd.sjoin(df_layer2_utm, df_rank_utm, predicate='within')
+    contained_layer2 = contained_layer2.to_crs(epsg=4326)
+    
+    # Plot layer_1 polygons first (containers)
+    for index, row in df_rank_plot.iterrows():
+        try:
+            geom = row["geometry"]
+            popup_text = f"""
+            <b>{DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</b><br>
+            Name: {row.get('Name', 'Unknown')}<br>
+            Contains {int(row['Score'])} {layer_2}
+            """
+            
+            if geom.geom_type == 'Polygon':
+                exterior_coords = list(geom.exterior.coords)
+                folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+                
+                folium.Polygon(
+                    locations=folium_coords,
+                    popup=folium.Popup(popup_text, max_width=300),
+                    tooltip=f"{layer_1.title()}: {row.get('Name', 'Unknown')}",
+                    color='blue',
+                    weight=2,
+                    opacity=0.8,
+                    fillColor='yellow',
+                    fillOpacity=0.4
+                ).add_to(m)
+            
+            elif geom.geom_type == 'MultiPolygon':
+                for polygon in geom.geoms:
+                    exterior_coords = list(polygon.exterior.coords)
+                    folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+                    
+                    folium.Polygon(
+                        locations=folium_coords,
+                        popup=folium.Popup(popup_text, max_width=300),
+                        tooltip=f"{layer_1.title()}: {row.get('Name', 'Unknown')}",
+                        color='blue',
+                        weight=2,
+                        opacity=0.8,
+                        fillColor='yellow',
+                        fillOpacity=0.4
+                    ).add_to(m)
+        except Exception as e:
+            print(f"Error plotting {layer_1} {index}: {e}")
+            continue
+    
+    # Plot layer_2 features that are contained
+    points_added = 0
+    for index, row in contained_layer2.iterrows():
+        try:
+            geom = row["geometry"]
+            popup_text = f"""
+            <b>{DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</b><br>
+            Name: {row.get('Name_left', 'Unknown')}<br>
+            Within: {row.get('Name_right', 'Unknown')}
+            """
+            
+            if geom.geom_type == 'Point':
+                lat = geom.y
+                lon = geom.x
+                
+                folium.Marker(
+                    location=[lat, lon],
+                    popup=folium.Popup(popup_text, max_width=300),
+                    tooltip=f"{layer_2.title()}: {row.get('Name_left', 'Unknown')}",
+                    icon=folium.Icon(color='red', icon='info-sign')
+                ).add_to(m)
+                points_added += 1
+                
+            elif geom.geom_type == 'LineString':
+                coords = list(geom.coords)
+                folium_coords = [[lat, lon] for lon, lat in coords]
+                
+                folium.PolyLine(
+                    locations=folium_coords,
+                    popup=folium.Popup(popup_text, max_width=300),
+                    tooltip=f"{layer_2.title()}: {row.get('Name_left', 'Unknown')}",
+                    color='red',
+                    weight=3,
+                    opacity=0.8
+                ).add_to(m)
+                points_added += 1
+                
+            elif geom.geom_type == 'MultiLineString':
+                for line in geom.geoms:
+                    coords = list(line.coords)
+                    folium_coords = [[lat, lon] for lon, lat in coords]
+                    
+                    folium.PolyLine(
+                        locations=folium_coords,
+                        popup=folium.Popup(popup_text, max_width=300),
+                        tooltip=f"{layer_2.title()}: {row.get('Name_left', 'Unknown')}",
+                        color='red',
+                        weight=3,
+                        opacity=0.8
+                    ).add_to(m)
+                points_added += 1
+                
+        except Exception as e:
+            print(f"Error plotting {layer_2} {index}: {e}")
+            continue
+    
+    print(f"Successfully added {len(df_rank_plot)} {layer_1} and {points_added} {layer_2} to the map")
+    
+    # Dynamic legend based on geometry types
+    row = df_rank_plot.iloc[0, :]
+    geom = row["geometry"]
+    if geom.geom_type in ['Polygon', 'MultiPolygon']:
+        legend_text_1 = f'<span style="color:blue; border: 1px solid blue; padding:2px 6px; display:inline-block;">▭ {DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</span>'
+    
+    row = contained_layer2.iloc[0, :]
+    geom = row["geometry"]
+    if geom.geom_type == 'Point':
+        legend_text_2 = f"<p><i class='fa fa-map-marker' style='color:red'></i> {DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</p>"
+    elif geom.geom_type in ['LineString', 'MultiLineString']:
+        legend_text_2 = f'<p><span style="color:red; font-weight:bold;">━━</span> {DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</p>'
+    
+    legend_html = f'''
+    <div style="position: fixed; 
+                top: 10px; right: 10px; width: 250px; height: 140px; 
+                background-color: white; border:2px solid grey; z-index:9999; 
+                font-size:14px; padding: 10px">
+    <h4>Legend</h4>
+    {legend_text_1}
+    {legend_text_2}
+    </div>
+    '''
+    
+    m.get_root().html.add_child(folium.Element(legend_html))
+    map_html = m.get_root().render()
+    # map_html = m._repr_html_()
+    # with open("within_operation_plot.html", "w", encoding="utf-8") as f:
+    #     f.write(map_html)
+    
+    # Generate report
+    df_rank["Coordinates"] = df_rank["geometry"].centroid
+    df_rank = df_rank.drop('geometry', axis=1)
+    report = df_rank.to_string(index=False)
+    report = f"REPORT of {layer_1} features that contain {layer_2} features:\n\n" + report
+    
+    # return report
+
     result = {
         'report': report,
         'map_html': map_html
