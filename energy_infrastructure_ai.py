@@ -190,17 +190,47 @@ def query_agent(user_message, session_id):
             # Try to parse as JSON (from mcda tool direct return)
             try:
                 data = json.loads(response_string)
-                # Check if it's the mcda output format
-                if isinstance(data, dict) and 'report' in data and 'map_html' in data:
-                    result = data['report']
-                    map_html = data['map_html']
-                    print(f"✅ Parsed mcda JSON output - map_html length: {len(map_html)} chars")
+                # Check if it's the structured format with thinking/tool_calls
+                if isinstance(data, dict) and 'output' in data:
+                    output = data.get('output', '')
+                    thinking = data.get('thinking', [])
+                    tool_calls = data.get('tool_calls', [])
                     
-                    # Verify map_html is complete (should have closing </html> tag)
-                    if map_html and not map_html.strip().endswith('</html>'):
-                        print("⚠️ Warning: map_html appears truncated (no closing </html> tag)")
+                    # Format thinking section
+                    thinking_text = ""
+                    if thinking:
+                        thinking_text = "**🤔 Agent's Reasoning:**\n\n"
+                        for thought in thinking:
+                            thinking_text += f"{thought}\n\n"
                     
-                    return result, map_html, None
+                    # Format tool calls section
+                    tool_calls_text = ""
+                    if tool_calls:
+                        tool_calls_text = "**🔧 Tools Used:**\n"
+                        for tc in tool_calls:
+                            tool_name = tc.get('tool_name', 'unknown')
+                            tool_calls_text += f"- {tool_name}\n"
+                    
+                    # Try to parse output as JSON (for report + map)
+                    try:
+                        output_data = json.loads(output)
+                        
+                        if 'report' in output_data and 'map_html' in output_data:
+                            report = output_data['report']
+                            map_html = output_data['map_html']
+                            
+                            # Prepend thinking and tool calls to report
+                            full_report = thinking_text + tool_calls_text + "\n\n---\n\n" + report
+                            
+                            print(f"✅ Parsed JSON output with thinking - map_html length: {len(map_html)} chars")
+                            
+                            return full_report, map_html, None
+                    except json.JSONDecodeError:
+                        pass
+                    
+                    # Plain text output
+                    result = thinking_text + tool_calls_text + "\n\n---\n\n" + str(output)
+                    return result, "", None
             except json.JSONDecodeError as e:
                 print(f"ℹ️ Direct JSON parse failed: {e}")
             

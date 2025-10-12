@@ -125,6 +125,10 @@ dummy_agent = Agent(
     system_prompt="""
 You're a helpful assistant. Use the tools available for you to answer questions.
 
+SYSTEM:
+Show your reasoning explicitly in <think>...</think> tags.
+Keep it concise and structured.
+
 """
 # You are a data analysis agent. 
 
@@ -157,6 +161,8 @@ You're a helpful assistant. Use the tools available for you to answer questions.
 # If you cannot get real data from the tools, say "I need to call the data analysis tools first" and stop.""",
 )
 
+conversation_histories = {}
+
 @app.entrypoint
 def pydantic_bedrock_claude_main(payload):
 # def agent(payload):
@@ -167,6 +173,13 @@ def pydantic_bedrock_claude_main(payload):
     print(f"Payload: {payload}")
 
     user_input = payload.get("prompt")
+
+    session_id = payload.get("session_id", "default")
+    
+    # Get or create conversation history
+    if session_id not in conversation_histories:
+        conversation_histories[session_id] = []
+
     result = dummy_agent.run_sync(user_input,
             output_type=[
                 mcda,
@@ -175,8 +188,41 @@ def pydantic_bedrock_claude_main(payload):
                 str],  # Functions passed here!
             model_settings=model_settings,                   
         )
+    
+    # Extract thinking and tool calls from messages
+    thinking_log = []
+    tool_calls_log = []
+    
+    import re
+    for msg in result.all_messages():
+        if hasattr(msg, 'parts'):
+            for part in msg.parts:
+                # Extract tool calls
+                if hasattr(part, 'tool_name'):
+                    tool_calls_log.append({
+                        'tool_name': part.tool_name,
+                        'args': part.args if hasattr(part, 'args') else {},
+                    })
+                
+                # Extract text content (includes <think> tags)
+                elif hasattr(part, 'content') and isinstance(part.content, str):
+                    # Extract thinking from <think> tags
+                    think_matches = re.findall(r'<think>(.*?)</think>', part.content, re.DOTALL)
+                    for think_content in think_matches:
+                        thinking_log.append(think_content.strip())
+    
+    # Update conversation history
+    conversation_histories[session_id] = result.all_messages()
+
     print(result.output)
-    return result.output
+    # return result.output
+
+    # Return structured response with thinking and tool calls
+    return {
+        "output": result.output,
+        "thinking": thinking_log,
+        "tool_calls": tool_calls_log,
+    }
 
 if __name__ == "__main__":
     app.run()
