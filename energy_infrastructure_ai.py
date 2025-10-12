@@ -302,6 +302,7 @@ def generate_data_source_footer(used_sources: Set[str]) -> str:
 # Find all wells which are within 10 kilometres of existing pipelines
 # Next, I want you to identify seismic activities which are within 10 kilometres of licence blocks
 # Do a scenario modeling for the licence blocks in the UK, with a focus on safety. 
+# Now do it again, but with the technical weight doubled.
 # What are the available data sources ?
 # Show all seismic events which fall into offshore fields
 

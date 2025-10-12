@@ -36,7 +36,7 @@ from os.path import join as pjoin
 import boto3
 
 # from config import BASE_PATH, DATASETS, DATASET_LIST, DATASET_LEGEND_DICT
-from config import DATASET_LEGEND_DICT, DATASET_LIST
+from config import DATASET_LEGEND_DICT, DATASET_LIST, SCENARIOS
 from utils import calculate_distance, load_data_and_process
 from schemas import DataSourceTracker, GetWellEntryInput,\
     WellEntryOutput, DataSourceOutput, SeismicAndDrillingInput,\
@@ -45,7 +45,7 @@ from schemas import DataSourceTracker, GetWellEntryInput,\
 # from document_processor import extract_text_from_pdf
 # from data_loader import get_coords
 # from seismic_analysis_python import SeismicDrillingAnalyzer
-# from scenario_modeling import run_mcda, run_scenario_analysis
+from scenario_modeling import run_mcda, run_scenario_analysis
 
 
 
@@ -225,12 +225,6 @@ def mcda(run_context: RunContext, target:str, obj_1: str, obj_2: str, obj_3: str
         marker.options['rank'] = int(row["Rank"])
         marker.add_to(cluster)
        
-    # --- 3. Save to HTML ---
-    # m.save("licence_scores_map.html")
-    # map_html = m._repr_html_()
-    # with open("licence_scores_map.html", "w", encoding="utf-8") as f:
-    #     f.write(map_html)
-    # print("✅ Saved interactive map as licence_scores_map.html")
     map_html = m.get_root().render()
 
     df_rank["Coordinates"] = df_rank["geometry"].centroid
@@ -713,7 +707,6 @@ def analyse_and_plot_features_and_nearby_infrastructure(run_context: RunContext[
     '''
     """
     m.get_root().html.add_child(folium.Element(legend_html))
-
     map_html = m.get_root().render()
 
     # Generate report
@@ -736,7 +729,279 @@ def analyse_and_plot_features_and_nearby_infrastructure(run_context: RunContext[
     
     return json.dumps(result)
 
-    # return report
+
+def analyse_using_mcda_then_plot(run_context: RunContext, target:str,
+        obj_1: str, obj_2: str, obj_3: str, obj_4: str,
+        w_1: float, w_2: float, w_3: float, w_4: float):    
+    """ Do a Multi-Criterion Decision Analysis (MCDA) for the given target,
+        ranking by a number of given objectives. After that, plot the results.
+    Args:
+        target: The target for analysis (e.g. "licence")
+        obj_1: The 1st objective (e.g. "safety")
+        obj_2: The 2nd objective (e.g. "environment")
+        obj_3: The 3rd objective (e.g. "technical")
+        obj_4: The 4th objective (e.g. "economic")
+        w_1: The weight for the 1st objective
+        w_2: The weight for the 2nd objective
+        w_3: The weight for the 3rd objective
+        w_4: The weight for the 4rd objective
+    Return: A JSON containing the following:
+        report: The final report in text form. Please note that for the objective scores, lower is better.
+        map_html: The HTML content showing the map.
+    """
+
+    print(run_context)
+    print()
+
+    report, df_rank = run_mcda(target, obj_1, obj_2, obj_3, obj_4, w_1, w_2, w_3, w_4)
+    df_rank = df_rank.rename(columns={'Coordinates': 'geometry'})
+    df_rank.set_geometry("geometry")
+    
+    # --- 1. Center map somewhere in UKCS ---
+    # Use the centroid of all licence polygons
+    m_center = df_rank.geometry.centroid.unary_union.centroid
+    m = folium.Map(location=[m_center.y, m_center.x], zoom_start=5, tiles="CartoDB positron")
+    
+    # --- 2. Define a color function (low = dark green, high = light yellow) ---
+    def get_color(value):
+        # value is normalized 0..1, we invert so low score = strong color        
+        cmap = mcolors.LinearSegmentedColormap.from_list("", ["green", "yellow", "red"])
+        rgba = cmap(1 - value)
+        return mcolors.to_hex(rgba)
+    
+    def style_function(feature):
+        score = feature["properties"]["Score"]        
+        norm_value = score
+        return {
+            "fillColor": get_color(norm_value),
+            "color": "black",
+            "weight": 0.5,
+            "fillOpacity": 0.99,
+        }
+    
+    # --- 3. Add licence polygons, color by overall Score ---
+    folium.GeoJson(
+        df_rank,
+        style_function=style_function,       
+        tooltip=folium.GeoJsonTooltip(            
+            fields=["Name", "Score", "Rank", "safety_score", "environment_score", "technical_score", "economic_score"],
+            aliases=["Licence", "Total Score", "Rank", "Safety", "Environment", "Technical", "Economic"],
+            localize=True
+        ),
+    ).add_to(m)
+    
+    # Custom JavaScript for cluster icon that shows average rank
+    with open('templates/mcda_cluster_icons.jstemplate', 'r') as file:
+        cluster_icon_js = file.read()
+   
+    # Create cluster with custom icon function
+    cluster = MarkerCluster(
+        icon_create_function=cluster_icon_js,
+    ).add_to(m)
+    
+    # Add markers to cluster
+    for _, row in df_rank.iterrows():
+        centroid = row.geometry.centroid
+        # Here we use the rank itself as color intensity (you could use sum/mean if grouping)
+        color = get_color(1 / row["Rank"])  # inverse rank: rank=1 is strongest green
+    
+        marker = folium.Marker(
+            location=[centroid.y, centroid.x],
+            popup=f"<b>Licence:</b> {row['Name']}<br><b>Score:</b> {row['Score']:.3f}<br><b>Rank:</b> {row['Rank']}",
+            icon=BeautifyIcon(
+                icon_shape="marker",
+                border_color=color,
+                background_color=color,
+                text_color="white",
+                number=row["Rank"],  # optional: show rank number inside cluster marker
+            )
+        )
+    
+        # Add rank data to marker options for cluster calculation
+        marker.options['rank'] = int(row["Rank"])
+        marker.add_to(cluster)
+       
+    map_html = m.get_root().render()
+
+    result = {
+        'report': report,
+        'map_html': map_html
+    }
+    
+    return json.dumps(result)
+
+
+def get_scenario_weights(run_context: RunContext, scenario_name: str = None) -> str:
+    """
+    Get the weight configuration for available MCDA scenarios.
+    
+    Args:
+        scenario_name: Optional specific scenario name to query. If None, returns all scenarios.
+                      Valid values: "balanced", "economic_focus", "safety_focus", "technical_focus", "environment_focus"
+    
+    Return:
+        JSON string containing scenario weights information
+    """
+
+    if scenario_name is None:
+        # Return all scenarios
+        result = {
+            "available_scenarios": list(SCENARIOS.keys()),
+            "all_weights": SCENARIOS
+        }
+        return json.dumps(result, indent=2)
+    
+    # Return specific scenario
+    if scenario_name not in SCENARIOS:
+        available = ", ".join(SCENARIOS.keys())
+        return json.dumps({
+            "error": f"Scenario '{scenario_name}' not found",
+            "available_scenarios": available
+        })
+    
+    result = {
+        "scenario": scenario_name,
+        "weights": SCENARIOS[scenario_name],
+        "description": f"In {scenario_name}, the weights are: " + 
+                      ", ".join([f"{k}={v}" for k, v in SCENARIOS[scenario_name].items()])
+    }
+    
+    return json.dumps(result, indent=2)
+
+
+def perform_scenario_analysis_then_plot(run_context: RunContext,
+        scenario_name: str,
+        adjust_safety: float = 0.0, 
+        adjust_technical: float = 0.0, 
+        adjust_economic: float = 0.0, 
+        adjust_environment: float = 0.0):
+    """
+    Run scenario analysis using Multi-Criterion Decision Analysis (MCDA), then plot the results.
+    
+    Available scenarios:
+    - "balanced": All objectives weighted equally at 0.25
+    - "economic_focus": Economic weighted at 0.5, others at 0.1-0.2
+    - "safety_focus": Safety weighted at 0.5, others at 0.1-0.2
+    - "technical_focus": Technical weighted at 0.5, others at 0.1-0.2
+    - "environment_focus": Environment weighted at 0.5, others at 0.1-0.2
+    
+    Args:
+        scenario_name: Name of the base scenario (e.g., 'safety_focus')
+        adjust_safety: Adjustment to safety weight (e.g., +0.1 to increase by 0.1, -0.1 to decrease)
+        adjust_technical: Adjustment to technical weight (e.g., +0.2 to increase by 0.2)
+        adjust_economic: Adjustment to economic weight
+        adjust_environment: Adjustment to environment weight
+    
+    Examples:
+        - "Run safety_focus with technical doubled" → scenario_name="safety_focus", adjust_technical=0.2
+        - "Run balanced scenario with more focus on environment" → scenario_name="balanced", adjust_environment=0.15
+
+    Return: A JSON containing:
+        report: The report in text form with rankings
+        map_html: Interactive map visualization
+    """
+
+    print(run_context)
+    print()
+
+    # Build adjust dict from parameters
+    adjust = {}
+    if adjust_safety != 0.0:
+        adjust['safety'] = adjust_safety
+    if adjust_technical != 0.0:
+        adjust['technical'] = adjust_technical
+    if adjust_economic != 0.0:
+        adjust['economic'] = adjust_economic
+    if adjust_environment != 0.0:
+        adjust['environment'] = adjust_environment
+    
+    adjust = adjust if adjust else None
+
+    report, df_rank, used_weights = run_scenario_analysis(scenario_name, adjust=adjust)
+    report += f"\n USED WEIGHTS: {used_weights}."
+
+    df_rank = df_rank.rename(columns={'Coordinates': 'geometry'})
+    df_rank.set_geometry("geometry")
+    
+    # --- 1. Center map somewhere in UKCS ---
+    # Use the centroid of all licence polygons
+    m_center = df_rank.geometry.centroid.unary_union.centroid
+    m = folium.Map(location=[m_center.y, m_center.x], zoom_start=5, tiles="CartoDB positron")
+    
+    # --- 2. Define a color function (low = dark green, high = light yellow) ---
+    def get_color(value):
+        # value is normalized 0..1, we invert so low score = strong color        
+        cmap = mcolors.LinearSegmentedColormap.from_list("", ["green", "yellow", "red"])
+        rgba = cmap(1 - value)
+        return mcolors.to_hex(rgba)
+    
+    def style_function(feature):
+        score = feature["properties"]["Score"]        
+        norm_value = score
+        return {
+            "fillColor": get_color(norm_value),
+            "color": "black",
+            "weight": 0.5,
+            "fillOpacity": 0.99,
+        }
+    
+    # --- 3. Add licence polygons, color by overall Score ---
+    folium.GeoJson(
+        df_rank,
+        style_function=style_function,       
+        tooltip=folium.GeoJsonTooltip(            
+            fields=["Name", "Score", "Rank", "safety_score", "environment_score", "technical_score", "economic_score"],
+            aliases=["Licence", "Total Score", "Rank", "Safety", "Environment", "Technical", "Economic"],
+            localize=True
+        ),
+    ).add_to(m)
+    
+    # Custom JavaScript for cluster icon that shows average rank
+    with open('templates/mcda_cluster_icons.jstemplate', 'r') as file:
+        cluster_icon_js = file.read()
+   
+    # Create cluster with custom icon function
+    cluster = MarkerCluster(
+        icon_create_function=cluster_icon_js,
+    ).add_to(m)
+    
+    # Add markers to cluster
+    for _, row in df_rank.iterrows():
+        centroid = row.geometry.centroid
+        # Here we use the rank itself as color intensity (you could use sum/mean if grouping)
+        color = get_color(1 / row["Rank"])  # inverse rank: rank=1 is strongest green
+    
+        marker = folium.Marker(
+            location=[centroid.y, centroid.x],
+            popup=f"<b>Licence:</b> {row['Name']}<br><b>Score:</b> {row['Score']:.3f}<br><b>Rank:</b> {row['Rank']}",
+            icon=BeautifyIcon(
+                icon_shape="marker",
+                border_color=color,
+                background_color=color,
+                text_color="white",
+                number=row["Rank"],  # optional: show rank number inside cluster marker
+            )
+        )
+    
+        # Add rank data to marker options for cluster calculation
+        marker.options['rank'] = int(row["Rank"])
+        marker.add_to(cluster)
+       
+    # --- 3. Save to HTML ---
+    # m.save("licence_scores_map.html")
+    # map_html = m._repr_html_()
+    # with open("licence_scores_map.html", "w", encoding="utf-8") as f:
+    #     f.write(map_html)
+    # print("✅ Saved interactive map as licence_scores_map.html")
+
+    map_html = m.get_root().render()
+
+    result = {
+        'report': report,
+        'map_html': map_html
+    }
+    
+    return json.dumps(result)
 
 
 def analyse_and_plot_within_op(run_context: RunContext[DataSourceTracker], layer_1: str, layer_2: str):
