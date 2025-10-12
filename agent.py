@@ -36,7 +36,12 @@ from schemas import ReportMapOutput
     # analyse_using_mcda_then_plot,\
     # perform_scenario_analysis_then_plot
 
-from tools import mcda
+from tools import analyse_and_plot_features_and_nearby_infrastructure,\
+    analyse_and_plot_within_op,\
+    analyse_using_mcda_then_plot,\
+    mcda,\
+    perform_scenario_analysis_then_plot,\
+    get_scenario_weights
 
 # from config import DATASETS, DATASET_LIST
 # from config import DATASET_LIST
@@ -180,14 +185,20 @@ def pydantic_bedrock_claude_main(payload):
     if session_id not in conversation_histories:
         conversation_histories[session_id] = []
 
+    # Currently, Pydantic AI does not officially support returning the results of
+    # called tool directly (without summarizing). So I followed this workaround: 
+    # https://github.com/pydantic/pydantic-ai/pull/142#issuecomment-3158974832
     result = dummy_agent.run_sync(user_input,
-            output_type=[
-                mcda,
-                analyse_and_plot_features_and_nearby_infrastructure,
-                analyse_and_plot_within_op,
-                str],  # Functions passed here!
-            model_settings=model_settings,                   
-        )
+        output_type=[
+            # mcda,
+            analyse_and_plot_features_and_nearby_infrastructure,
+            analyse_and_plot_within_op,
+            analyse_using_mcda_then_plot,
+            perform_scenario_analysis_then_plot,
+            str],  # Functions passed here!
+        model_settings=model_settings,
+        message_history=conversation_histories[session_id],                   
+    )   
     
     # Extract thinking and tool calls from messages
     thinking_log = []

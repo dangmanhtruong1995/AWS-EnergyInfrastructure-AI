@@ -197,11 +197,19 @@ def query_agent(user_message, session_id):
                     tool_calls = data.get('tool_calls', [])
                     
                     # Format thinking section
+                    # thinking_text = ""
+                    # if thinking:
+                    #     thinking_text = "**🤔 Agent's Reasoning:**\n\n"
+                    #     for thought in thinking:
+                    #         thinking_text += f"{thought}\n\n"
+
                     thinking_text = ""
                     if thinking:
-                        thinking_text = "**🤔 Agent's Reasoning:**\n\n"
+                        thinking_text = '<div style="background-color: #f0f7ff; border-left: 4px solid #0066cc; padding: 15px; margin: 10px 0; border-radius: 5px;">\n\n'
+                        thinking_text += "**🤔 Agent's Reasoning:**\n\n"
                         for thought in thinking:
                             thinking_text += f"{thought}\n\n"
+                        thinking_text += '</div>\n\n'
                     
                     # Format tool calls section
                     tool_calls_text = ""
