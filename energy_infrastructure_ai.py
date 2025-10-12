@@ -349,6 +349,45 @@ def create_enhanced_interface():
             print(f"🔍 HTML content length: {len(html_content) if html_content else 0} chars")
             print(f"🔍 Has HTML content: {bool(html_content)}")
             
+            if html_content and response:
+                print("📝 HTML detected - generating summary of full report...")
+                summary_prompt = f"""Please provide a concise summary (2-3 sentences) of this analysis report, highlighting the key findings:
+
+{response[:2000]}  
+
+Keep the summary brief and actionable."""
+                
+                bedrock_client = boto3.client('bedrock-runtime', region_name=region)
+                
+                summary_prompt = f"""Provide a concise 2-3 sentence summary highlighting the key findings from this MCDA analysis report. Focus on the top-ranked locations and their scores. Do not perform any new analysis.
+
+Report excerpt:
+{response[:2000]}
+
+Summary:"""
+                
+                # Call Claude directly via Bedrock
+                bedrock_response = bedrock_client.converse(
+                    modelId='us.anthropic.claude-3-5-haiku-20241022-v1:0',
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [{"text": summary_prompt}]
+                        }
+                    ],
+                    inferenceConfig={
+                        "maxTokens": 200,
+                        "temperature": 0.3
+                    }
+                )
+                
+                summary_response = bedrock_response['output']['message']['content'][0]['text']
+                
+                # Combine: Summary first, then full report
+                combined_response = f"**Summary:**\n{summary_response}\n\n---\n\n**Full Report:**\n{response}"
+                response = combined_response
+                print(f"✅ Added summary. New response length: {len(response)} chars")
+
             # Add bot response to history
             history[-1] = (message, response)
             
