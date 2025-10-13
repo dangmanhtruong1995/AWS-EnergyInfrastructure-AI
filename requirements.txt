@@ -19,4 +19,4 @@ branca
 nltk
 utm
 PyPDF2
-
+requests
