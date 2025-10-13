@@ -102,28 +102,7 @@ dummy_agent = Agent(
             function=get_available_data_sources,
             takes_ctx=True, 
             description="Get list of available datasets"
-        ),
-        # Tool(
-        #     function=analyse_and_plot_features_and_nearby_infrastructure, 
-        #     takes_ctx=True,
-        #     description="Find and plot features within a distance threshold. Use for queries like 'wells within 10km of pipelines'",
-        # ),
-
-
-        # get_seismic_data_source, 
-        # get_drilling_and_production_data_source,
-        # get_ukcs_licensed_blocks_data_source,
-        # analyze_seismic_and_drilling_data,
-        # plot_seismic_and_drilling_data,
-        # analyze_seismic_events_close_to_licensed_blocks,
-        # plot_seismic_events_close_to_licensed_blocks,
-        # mcda,
-        
-        # analyse_and_plot_features_and_nearby_infrastructure,
-        # analyse_and_plot_within_op,
-        # analyse_using_mcda_then_plot,
-        # perform_scenario_analysis_then_plot
-        # show_seismic_dataset,
+        ),        
     ],
     # system_prompt=""""You're a helpful assistant. Use the tools available for you to answer questions.""",
 
@@ -135,35 +114,6 @@ Show your reasoning explicitly in <think>...</think> tags.
 Keep it concise and structured.
 
 """
-# You are a data analysis agent. 
-
-# When the user asks about available data sources, call get_available_data_sources and provide a natural language summary.
-
-# When the user asks for analysis (MCDA, scenario analysis, etc.), call mcda which will return structured results.
-
-# IMPORTANT: After calling a tool once and getting its result, provide your answer. Do NOT call the same tool repeatedly."""
-
-# You are a data analysis agent. Your primary function is to execute the available tools to answer the user's request.
-
-# CRITICAL INSTRUCTION: When a tool returns a JSON object containing an 'report' and 'map_html' key, you MUST return the raw, unadulterated JSON string as your final response. DO NOT attempt to summarize, interpret, or modify the JSON. Your final output in this case must be ONLY the raw JSON string."""
-
-#     system_prompt=""""You are a data analyst specialized in oil and gas analysis.
-
-# CRITICAL: You MUST actually call tools, not just describe calling them.
-
-# For seismic/drilling analysis, follow this EXACT sequence:
-# 1. Call get_seismic_data_source() - wait for the actual file path result
-# 2. Call get_drilling_and_production_data_source() - wait for the actual file path result  
-# 3. Call analyze_seismic_and_drilling_data() using the REAL paths from steps 1&2
-# 4. Call plot_seismic_and_drilling_data() using the REAL paths from steps 1&2
-
-# For other types of analysis, follow a similar sequence. Namely get the relevant data sources, then call the relevant analysis tool, then call the plot tool.
-
-# DO NOT make up data or locations. DO NOT provide analysis without calling all three tools.
-# DO NOT generate fake responses. Only respond after actually executing the analysis tools.
-# Return the report in step 3 in full, followed by a summary. DO NOT only return the summary without the report.
-
-# If you cannot get real data from the tools, say "I need to call the data analysis tools first" and stop.""",
 )
 
 conversation_histories = {}
@@ -203,6 +153,7 @@ def pydantic_bedrock_claude_main(payload):
     # Extract thinking and tool calls from messages
     thinking_log = []
     tool_calls_log = []
+    seen_tool_calls = set()
     
     import re
     for msg in result.all_messages():
@@ -210,10 +161,18 @@ def pydantic_bedrock_claude_main(payload):
             for part in msg.parts:
                 # Extract tool calls
                 if hasattr(part, 'tool_name'):
-                    tool_calls_log.append({
-                        'tool_name': part.tool_name,
-                        'args': part.args if hasattr(part, 'args') else {},
-                    })
+                    tool_name = part.tool_name
+
+                    # Remove Pydantic AI added prefix in tool names
+                    if tool_name.startswith('final_result_'):
+                        tool_name = tool_name.replace('final_result_', '')
+                    
+                    args = part.args if hasattr(part, 'args') else {}
+                    tool_signature = f"{tool_name}:{json.dumps(args, sort_keys=True)}"
+                    
+                    if tool_signature not in seen_tool_calls:
+                        seen_tool_calls.add(tool_signature)
+                        tool_calls_log.append({'tool_name': tool_name, 'args': args})
                 
                 # Extract text content (includes <think> tags)
                 elif hasattr(part, 'content') and isinstance(part.content, str):

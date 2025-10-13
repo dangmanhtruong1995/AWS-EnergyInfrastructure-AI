@@ -197,12 +197,6 @@ def query_agent(user_message, session_id):
                     tool_calls = data.get('tool_calls', [])
                     
                     # Format thinking section
-                    # thinking_text = ""
-                    # if thinking:
-                    #     thinking_text = "**🤔 Agent's Reasoning:**\n\n"
-                    #     for thought in thinking:
-                    #         thinking_text += f"{thought}\n\n"
-
                     thinking_text = ""
                     if thinking:
                         thinking_text = '<div style="background-color: #f0f7ff; border-left: 4px solid #0066cc; padding: 15px; margin: 10px 0; border-radius: 5px;">\n\n'
@@ -212,12 +206,52 @@ def query_agent(user_message, session_id):
                         thinking_text += '</div>\n\n'
                     
                     # Format tool calls section
+                    # tool_calls_text = ""
+                    # if tool_calls:
+                    #     tool_calls_text = "**🔧 Tools Used:**\n"
+                    #     for tc in tool_calls:
+                    #         tool_name = tc.get('tool_name', 'unknown')
+                    #         tool_calls_text += f"- {tool_name}\n"
+
                     tool_calls_text = ""
                     if tool_calls:
-                        tool_calls_text = "**🔧 Tools Used:**\n"
-                        for tc in tool_calls:
+                        tool_calls_text = '<div style="background-color: #fff3e0; border-left: 5px solid #ff9800; padding: 15px; margin: 15px 0; border-radius: 8px; font-family: system-ui;">\n\n'
+                        tool_calls_text += "**🔧 Tools Executed:**\n\n"
+                        
+                        for i, tc in enumerate(tool_calls, 1):
                             tool_name = tc.get('tool_name', 'unknown')
-                            tool_calls_text += f"- {tool_name}\n"
+                            args = tc.get('args', {})
+                            
+                            # Different icons for different tools
+                            if 'mcda' in tool_name or 'scenario' in tool_name:
+                                icon = "📊"
+                            elif 'plot' in tool_name or 'map' in tool_name:
+                                icon = "🗺️"
+                            elif 'analyse' in tool_name or 'analyze' in tool_name:
+                                icon = "🔍"
+                            elif 'data' in tool_name or 'source' in tool_name:
+                                icon = "📁"
+                            else:
+                                icon = "⚙️"
+                            
+                            tool_calls_text += f"{icon} **`{tool_name}`**"
+                            
+                            # Show key arguments inline
+                            if args:
+                                key_args = []
+                                if 'scenario_name' in args:
+                                    key_args.append(f"scenario: `{args['scenario_name']}`")
+                                if 'layer_1' in args:
+                                    key_args.append(f"layer_1: `{args['layer_1']}`")
+                                if 'layer_2' in args:
+                                    key_args.append(f"layer_2: `{args['layer_2']}`")
+                                
+                                if key_args:
+                                    tool_calls_text += f" ({', '.join(key_args)})"
+                            
+                            tool_calls_text += "\n\n"
+                        
+                        tool_calls_text += '</div>\n\n'
                     
                     # Try to parse output as JSON (for report + map)
                     try:
