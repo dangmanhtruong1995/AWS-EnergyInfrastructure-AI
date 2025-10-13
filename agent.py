@@ -162,18 +162,29 @@ def pydantic_bedrock_claude_main(payload):
                 # Extract tool calls
                 if hasattr(part, 'tool_name'):
                     tool_name = part.tool_name
-
+                
                     # Remove Pydantic AI added prefix in tool names
                     if tool_name.startswith('final_result_'):
                         tool_name = tool_name.replace('final_result_', '')
                     
                     args = part.args if hasattr(part, 'args') else {}
-                    tool_signature = f"{tool_name}:{json.dumps(args, sort_keys=True)}"
                     
-                    if tool_signature not in seen_tool_calls:
-                        seen_tool_calls.add(tool_signature)
+                    # More robust signature - handle empty args
+                    if args:
+                        tool_signature = f"{tool_name}:{json.dumps(args, sort_keys=True)}"
+                    else:
+                        tool_signature = f"{tool_name}:no_args"
+                    
+                    # Debug: print what we're seeing
+                    print(f"🔍 Tool detected: {tool_name}, Args: {args}, Signature: {tool_signature}")
+                    
+                    if tool_name not in seen_tool_calls:
+                        seen_tool_calls.add(tool_name)
                         tool_calls_log.append({'tool_name': tool_name, 'args': args})
-                
+                        print(f"  ✅ Added to log")
+                    else:
+                        print(f"  ⏭️ Skipped (duplicate)")
+                        
                 # Extract text content (includes <think> tags)
                 elif hasattr(part, 'content') and isinstance(part.content, str):
                     # Extract thinking from <think> tags
