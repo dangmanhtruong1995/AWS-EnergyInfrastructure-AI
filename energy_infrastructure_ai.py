@@ -264,7 +264,7 @@ def generate_data_source_footer(used_sources: Set[str]) -> str:
 # Show all seismic events which fall into offshore fields
 
 # Assess the risk for building an offshore wind farm near Aberdeen
-# Now, assess the risk for building an offshore wind farm near Fraserburgh
+# What about Fraserburgh ?
 
 # === Gradio Frontend ===
 def create_enhanced_interface():
