@@ -6,8 +6,16 @@ from pydantic import BaseModel
 
 @dataclass
 class DataSourceTracker:
+    """Track data sources used during agent execution"""
     used_sources: Set[str] = field(default_factory=set)
-    report: Set[str] = field(default_factory=set)
+    
+    def add_source(self, source: str):
+        """Add a data source"""
+        self.used_sources.add(source)
+    
+    def get_sources(self):
+        """Get all sources as a list"""
+        return list(self.used_sources)
 
 
 class ReportMapOutput(BaseModel):

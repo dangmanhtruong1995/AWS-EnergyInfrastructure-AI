@@ -37,7 +37,7 @@ import boto3
 
 # from config import BASE_PATH, DATASETS, DATASET_LIST, DATASET_LEGEND_DICT
 from config import DATASET_LEGEND_DICT, DATASET_LIST, SCENARIOS
-from utils import calculate_distance, load_data_and_process
+from utils import calculate_distance, load_data_and_process, add_data_source
 from schemas import DataSourceTracker, GetWellEntryInput,\
     WellEntryOutput, DataSourceOutput, SeismicAndDrillingInput,\
     SeismicAndDrillingOutput, PlotOutput, SeismicAndLicensedBlocksInput,\
@@ -87,6 +87,8 @@ def mcda(run_context: RunContext, target:str, obj_1: str, obj_2: str, obj_3: str
 
     print("All data loaded. Starting analysis...", flush=True)
     sys.stdout.flush()
+
+    add_data_source(run_context, layer_list)
 
     n_licence = len(df_dict["licences"])
     n_well = len(df_dict["wells"])
@@ -401,15 +403,7 @@ def analyse_and_plot_features_and_nearby_infrastructure(run_context: RunContext[
     print(f"Layer 2: {layer_2}")
     print()
 
-    # Add data sources to tracker
-    # layer_list = [layer_1, layer_2]
-    # for layer_name in layer_list:
-    #     if layer_name == "seismic":
-    #         run_context.deps.used_sources.add("UK BGS earthquake data, from https://www.earthquakes.bgs.ac.uk/earthquakes/recent_uk_events.html")
-    #     elif layer_name == "drilling":
-    #         run_context.deps.used_sources.add("UKCS daily production data")
-    #     else:
-    #         run_context.deps.used_sources.add(f"UKCS licensed blocks data ({layer_name}), from https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8")
+    add_data_source(run_context, [layer_1, layer_2])
 
     # Calculate the center point based on the data
     if len(df_points_ranked) > 0:
@@ -753,6 +747,9 @@ def analyse_using_mcda_then_plot(run_context: RunContext, target:str,
     print(run_context)
     print()
 
+    layer_list = ["licences", "wells", "seismic", "drilling", "pipelines", "offshore_fields"]
+    add_data_source(run_context, layer_list)
+
     report, df_rank = run_mcda(target, obj_1, obj_2, obj_3, obj_4, w_1, w_2, w_3, w_4)
     df_rank = df_rank.rename(columns={'Coordinates': 'geometry'})
     df_rank.set_geometry("geometry")
@@ -843,6 +840,9 @@ def get_scenario_weights(run_context: RunContext, scenario_name: str = None) -> 
         JSON string containing scenario weights information
     """
 
+    layer_list = ["licences", "wells", "seismic", "drilling", "pipelines", "offshore_fields"]
+    add_data_source(run_context, layer_list)
+
     if scenario_name is None:
         # Return all scenarios
         result = {
@@ -903,6 +903,8 @@ def perform_scenario_analysis_then_plot(run_context: RunContext,
 
     print(run_context)
     print()
+
+    
 
     # Build adjust dict from parameters
     adjust = {}
@@ -1064,14 +1066,7 @@ def analyse_and_plot_within_op(run_context: RunContext[DataSourceTracker], layer
     print()
 
     # Add data sources to tracker
-    # layer_list = [layer_1, layer_2]
-    # for layer_name in layer_list:
-    #     if layer_name == "seismic":
-    #         run_context.deps.used_sources.add("UK BGS earthquake data, from https://www.earthquakes.bgs.ac.uk/earthquakes/recent_uk_events.html")
-    #     elif layer_name == "drilling":
-    #         run_context.deps.used_sources.add("UKCS daily production data")
-    #     else:
-    #         run_context.deps.used_sources.add(f"UKCS licensed blocks data ({layer_name}), from https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8")
+    add_data_source(run_context, [layer_1, layer_2])
 
     # Calculate center and zoom
     if len(df_rank) > 0:

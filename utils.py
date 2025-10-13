@@ -12,6 +12,23 @@ import time
 from config import get_dataset_path, get_shapefile_from_s3, DATASET_S3_KEYS
 
 
+def add_data_source(run_context, layer_list):
+    for layer_name in layer_list:
+        if layer_name == "seismic":
+            run_context.deps.add_source("UK BGS earthquake data (https://www.earthquakes.bgs.ac.uk)")
+        elif layer_name == "drilling":
+            run_context.deps.add_source("UKCS daily production data")
+        elif layer_name == "licences":
+            run_context.deps.add_source("UKCS licensed blocks data (https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8)")
+        elif layer_name == "wells":
+            run_context.deps.add_source("UKCS wells data (https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8)")
+        elif layer_name == "pipelines":
+            run_context.deps.add_source("UKCS pipeline data (https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8)")
+        elif layer_name == "offshore_fields":
+            run_context.deps.add_source("UKCS offshore fields data (https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8)")
+    
+
+
 def load_data_and_process(layer_name: str):
     """
     Load and process datasets from S3.

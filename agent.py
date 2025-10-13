@@ -17,25 +17,7 @@ from bedrock_agentcore_starter_toolkit import Runtime
 from boto3.session import Session
 
 from config import DATASETS, DATASET_LIST
-
-# from schemas import DataSourceTracker
-
-from tools import analyse_and_plot_features_and_nearby_infrastructure,\
-    analyse_and_plot_within_op
-from schemas import ReportMapOutput
-# from tools import analyse_using_mcda_then_plot
-    # get_drilling_and_production_data_source,\
-    # get_ukcs_licensed_blocks_data_source,\
-    # analyze_seismic_and_drilling_data,\
-    # plot_seismic_and_drilling_data,\
-    # analyze_seismic_events_close_to_licensed_blocks,\
-    # plot_seismic_events_close_to_licensed_blocks,\
-    # mcda, get_available_data_sources,\
-    # analyse_and_plot_features_and_nearby_infrastructure,\
-    # analyse_and_plot_within_op,\
-    # analyse_using_mcda_then_plot,\
-    # perform_scenario_analysis_then_plot
-
+from schemas import DataSourceTracker, ReportMapOutput
 from tools import analyse_and_plot_features_and_nearby_infrastructure,\
     analyse_and_plot_within_op,\
     analyse_using_mcda_then_plot,\
@@ -43,12 +25,6 @@ from tools import analyse_and_plot_features_and_nearby_infrastructure,\
     perform_scenario_analysis_then_plot,\
     get_scenario_weights
 
-# from config import DATASETS, DATASET_LIST
-# from config import DATASET_LIST
-
-# def get_available_data_sources():
-#     """Return available UK energy data sources"""
-#     return ["seismic", "wells", "licences", "pipelines", "offshore_fields"]
 
 def show_seismic_dataset(run_context: RunContext):
     """ Show the seismic dataset.
@@ -63,7 +39,6 @@ def show_seismic_dataset(run_context: RunContext):
     
     df = pd.read_csv(get_dataset_path("seismic"))
     return df.head().to_dict()
-
 
 
 def get_available_data_sources(run_context: RunContext):    
@@ -104,6 +79,7 @@ dummy_agent = Agent(
             description="Get list of available datasets"
         ),        
     ],
+    deps_type=DataSourceTracker,
     # system_prompt=""""You're a helpful assistant. Use the tools available for you to answer questions.""",
 
     system_prompt="""
@@ -130,15 +106,16 @@ def pydantic_bedrock_claude_main(payload):
     user_input = payload.get("prompt")
 
     session_id = payload.get("session_id", "default")
-    
-    # Get or create conversation history
     if session_id not in conversation_histories:
         conversation_histories[session_id] = []
+
+    deps = DataSourceTracker()
 
     # Currently, Pydantic AI does not officially support returning the results of
     # called tool directly (without summarizing). So I followed this workaround: 
     # https://github.com/pydantic/pydantic-ai/pull/142#issuecomment-3158974832
     result = dummy_agent.run_sync(user_input,
+        deps=deps,
         output_type=[
             # mcda,
             analyse_and_plot_features_and_nearby_infrastructure,
@@ -192,17 +169,17 @@ def pydantic_bedrock_claude_main(payload):
                     for think_content in think_matches:
                         thinking_log.append(think_content.strip())
     
-    # Update conversation history
     conversation_histories[session_id] = result.all_messages()
+    data_sources = deps.get_sources()
 
     print(result.output)
-    # return result.output
 
     # Return structured response with thinking and tool calls
     return {
         "output": result.output,
         "thinking": thinking_log,
         "tool_calls": tool_calls_log,
+        "data_sources": data_sources,
     }
 
 if __name__ == "__main__":

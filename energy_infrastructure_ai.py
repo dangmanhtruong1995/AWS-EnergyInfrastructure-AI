@@ -40,6 +40,7 @@ import boto3
 
 import gradio as gr
 import uuid
+from format import format_thinking, format_tools_called, format_data_sources
 # from config import BASE_PATH, HISTORY_FILE
 # from schemas import DataSourceTracker, GetWellEntryInput, WellEntryOutput, DataSourceOutput, SeismicAndDrillingInput, SeismicAndDrillingOutput, PlotOutput
 # from document_processor import extract_text_from_pdf
@@ -124,39 +125,6 @@ print(launch_result)
 
 
 # === Function to Query Bedrock Agent ===
-# def query_agent(user_message, session_id):
-#     """
-#     Send a prompt to the deployed AWS Bedrock AgentCore runtime.
-#     Each user has their own isolated session (using session_id).
-#     """
-#     try:
-#         print(f"🔹 Invoking agent for session {session_id}...")
-#         payload = {"prompt": user_message, "session_id": session_id}
-#         response = agentcore_runtime.invoke(payload)
-#         # set_trace()
-
-#         try:
-#             response_json_string = ''.join(response['response'])
-#             response_json_string = json.loads(response_json_string)
-#             data = json.loads(response_json_string)
-#             result = data['report']
-#             map_html = data['map_html']
-#         except:
-#             # No HTML attached, so just return summarized response
-#             # AgentCore returns structured dict
-#             result = response.get("response", [""])[0]
-        
-#             # Clean up escape characters
-#             result = result.replace("\\n", "\n").replace('\\"', '"')
-#             map_html = ""
-
-#         return result, map_html, None
-
-#     except Exception as e:
-#         print(f"❌ Error in query_agent: {e}")
-#         return f"⚠️ Error contacting the analysis agent: {e}", ""
-
-
 def query_agent(user_message, session_id):
     """
     Send a prompt to the deployed AWS Bedrock AgentCore runtime.
@@ -183,7 +151,6 @@ def query_agent(user_message, session_id):
             
             response_string = ''.join(response_list)
 
-
             print(f"📝 Raw response length: {len(response_string)} chars")
             print(f"📝 Raw response preview: {response_string[:200]}...")
             
@@ -195,64 +162,21 @@ def query_agent(user_message, session_id):
                     output = data.get('output', '')
                     thinking = data.get('thinking', [])
                     tool_calls = data.get('tool_calls', [])
-                    
-                    # Format thinking section
-                    thinking_text = ""
-                    if thinking:
-                        thinking_text = '<div style="background-color: #f0f7ff; border-left: 4px solid #0066cc; padding: 15px; margin: 10px 0; border-radius: 5px;">\n\n'
-                        thinking_text += "**🤔 Agent's Reasoning:**\n\n"
-                        for thought in thinking:
-                            thinking_text += f"{thought}\n\n"
-                        thinking_text += '</div>\n\n'
-                    
-                    # Format tool calls section
-                    # tool_calls_text = ""
-                    # if tool_calls:
-                    #     tool_calls_text = "**🔧 Tools Used:**\n"
-                    #     for tc in tool_calls:
-                    #         tool_name = tc.get('tool_name', 'unknown')
-                    #         tool_calls_text += f"- {tool_name}\n"
+                    data_sources = data.get('data_sources', [])
 
-                    tool_calls_text = ""
-                    if tool_calls:
-                        tool_calls_text = '<div style="background-color: #fff3e0; border-left: 5px solid #ff9800; padding: 15px; margin: 15px 0; border-radius: 8px; font-family: system-ui;">\n\n'
-                        tool_calls_text += "**🔧 Tools Executed:**\n\n"
-                        
-                        for i, tc in enumerate(tool_calls, 1):
-                            tool_name = tc.get('tool_name', 'unknown')
-                            args = tc.get('args', {})
-                            
-                            # Different icons for different tools
-                            if 'mcda' in tool_name or 'scenario' in tool_name:
-                                icon = "📊"
-                            elif 'plot' in tool_name or 'map' in tool_name:
-                                icon = "🗺️"
-                            elif 'analyse' in tool_name or 'analyze' in tool_name:
-                                icon = "🔍"
-                            elif 'data' in tool_name or 'source' in tool_name:
-                                icon = "📁"
-                            else:
-                                icon = "⚙️"
-                            
-                            tool_calls_text += f"{icon} **`{tool_name}`**"
-                            
-                            # Show key arguments inline
-                            if args:
-                                key_args = []
-                                if 'scenario_name' in args:
-                                    key_args.append(f"scenario: `{args['scenario_name']}`")
-                                if 'layer_1' in args:
-                                    key_args.append(f"layer_1: `{args['layer_1']}`")
-                                if 'layer_2' in args:
-                                    key_args.append(f"layer_2: `{args['layer_2']}`")
-                                
-                                if key_args:
-                                    tool_calls_text += f" ({', '.join(key_args)})"
-                            
-                            tool_calls_text += "\n\n"
-                        
-                        tool_calls_text += '</div>\n\n'
-                    
+                    thinking_text = format_thinking(thinking)
+                    tool_calls_text = format_tools_called(tool_calls)                    
+                    sources_text = format_data_sources(data_sources)
+
+                    print()
+                    print()
+                    print()
+                    print("DATA SOURCES:")
+                    print(sources_text)
+                    print()
+                    print()
+                    print()
+
                     # Try to parse output as JSON (for report + map)
                     try:
                         output_data = json.loads(output)
@@ -262,7 +186,7 @@ def query_agent(user_message, session_id):
                             map_html = output_data['map_html']
                             
                             # Prepend thinking and tool calls to report
-                            full_report = thinking_text + tool_calls_text + "\n\n---\n\n" + report
+                            full_report = thinking_text + tool_calls_text + sources_text + "\n\n---\n\n" + report
                             
                             print(f"✅ Parsed JSON output with thinking - map_html length: {len(map_html)} chars")
                             
@@ -271,7 +195,7 @@ def query_agent(user_message, session_id):
                         pass
                     
                     # Plain text output
-                    result = thinking_text + tool_calls_text + "\n\n---\n\n" + str(output)
+                    result = thinking_text + tool_calls_text + sources_text +"\n\n---\n\n" + str(output)
                     return result, "", None
             except json.JSONDecodeError as e:
                 print(f"ℹ️ Direct JSON parse failed: {e}")
