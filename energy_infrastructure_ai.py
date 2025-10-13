@@ -17,36 +17,16 @@ from io import BytesIO
 from typing import Set, Union
 import json
 import base64
-
-# from pyproj import Transformer
-# from geopy.geocoders import Nominatim
-# import utm
-# from shapely.geometry import Point
-# import geopandas as gpd
-# from geopandas import GeoDataFrame
-# import geodatasets
 import zipfile
-
-# import pydantic_ai
-# from pydantic import BaseModel
-# from pydantic_ai import Agent, BinaryContent, RunContext
-# from pydantic_ai.models.openai import OpenAIChatModel
-# from pydantic_ai.providers.ollama import OllamaProvider
-# from pydantic_ai.messages import ModelRequest, ToolReturnPart
+import gradio as gr
+import uuid
 
 from bedrock_agentcore_starter_toolkit import Runtime
 from boto3.session import Session
 import boto3
+from botocore.config import Config
 
-import gradio as gr
-import uuid
 from format import format_thinking, format_tools_called, format_data_sources
-# from config import BASE_PATH, HISTORY_FILE
-# from schemas import DataSourceTracker, GetWellEntryInput, WellEntryOutput, DataSourceOutput, SeismicAndDrillingInput, SeismicAndDrillingOutput, PlotOutput
-# from document_processor import extract_text_from_pdf
-# from data_loader import get_coords
-# from seismic_analysis_python import SeismicDrillingAnalyzer
-# from agent import agent
 
 
 boto_session = Session()
@@ -97,8 +77,27 @@ with open("Dockerfile", "w") as f:
 
 print("✅ Modified Dockerfile with GDAL")
 
+# Create a config with better retry handling
+# retry_config = Config(
+#     retries={
+#         'max_attempts': 10,  # Increase max retries
+#         'mode': 'adaptive',  # Use adaptive retry mode
+#         'total_max_attempts': 15  # Total attempts across all retries
+#     },
+#     region_name="us-east-1"
+# )
+
+retry_config = Config(
+    connect_timeout=5, 
+    read_timeout=60, 
+    retries={
+        'max_attempts': 10, 
+        'mode': 'adaptive'}
+)
+
+
 # Step 3: Rezip and upload to S3
-s3 = boto3.client('s3', region_name=region)
+s3 = boto3.client('s3', region_name=region, config=retry_config)
 
 # Create new zip with modified Dockerfile
 with zipfile.ZipFile('/tmp/source_modified.zip', 'w') as zipf:

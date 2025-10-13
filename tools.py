@@ -15,7 +15,6 @@ from pdb import set_trace
 from pyproj import Transformer
 from geopy.geocoders import Nominatim
 import utm
-from shapely.geometry import Point
 import geopandas as gpd
 import geodatasets
 import folium
@@ -1261,3 +1260,480 @@ def analyse_and_plot_within_op(run_context: RunContext[DataSourceTracker], layer
     }
     
     return json.dumps(result)
+
+
+# === Tools relating to risk assessment ===
+def geocode_location(run_context: RunContext[DataSourceTracker], location: str) -> str:
+    """
+    Convert a location name or address to latitude and longitude coordinates.
+    
+    Args:
+        location: Location name, address, or coordinates (e.g., "Aberdeen, UK", "North Sea", "57.1497, -2.0943")
+    
+    Return:
+        JSON string with coordinates and location details
+    """
+    
+    try:
+        from geopy.geocoders import Nominatim
+        
+        # Try to parse if it's already coordinates
+        if ',' in location:
+            parts = location.split(',')
+            if len(parts) == 2:
+                try:
+                    lat = float(parts[0].strip())
+                    lon = float(parts[1].strip())
+                    if -90 <= lat <= 90 and -180 <= lon <= 180:
+                        result = {
+                            'latitude': lat,
+                            'longitude': lon,
+                            'location_name': f"Coordinates: {lat}, {lon}",
+                            'success': True
+                        }
+                        return json.dumps(result)
+                except ValueError:
+                    pass
+        
+        # Use geocoding service
+        geolocator = Nominatim(user_agent="energy_infrastructure_ai")
+        location_data = geolocator.geocode(location)
+        
+        if location_data:
+            result = {
+                'latitude': location_data.latitude,
+                'longitude': location_data.longitude,
+                'location_name': location_data.address,
+                'success': True
+            }
+        else:
+            result = {
+                'error': f"Could not find coordinates for '{location}'",
+                'success': False
+            }
+        
+        return json.dumps(result)
+        
+    except Exception as e:
+        result = {
+            'error': f"Geocoding failed: {str(e)}",
+            'success': False
+        }
+        return json.dumps(result)
+    
+
+def assess_seismic_risk_at_location(run_context: RunContext[DataSourceTracker], 
+                                   latitude: float, longitude: float, 
+                                   radius_km: float = 50.0) -> str:
+    """
+    Assess seismic risk by counting earthquake events within a radius of a specific location.
+    
+    Args:
+        latitude: Latitude coordinate
+        longitude: Longitude coordinate  
+        radius_km: Search radius in kilometers (default: 50km)
+    
+    Return:
+        JSON string with seismic risk assessment and nearby earthquake data
+    """
+    
+    try:
+        # Load seismic data
+        df_seismic = load_data_and_process("seismic")
+        add_data_source(run_context, ["seismic"])
+        
+        # Create point geometry for target location
+        target_point = Point(longitude, latitude)  # Note: lon, lat for Point
+        target_gdf = gpd.GeoDataFrame([{'geometry': target_point}], crs='EPSG:4326')
+        
+        # Convert to UTM for accurate distance calculation
+        utm_crs = target_gdf.estimate_utm_crs()
+        target_utm = target_gdf.to_crs(utm_crs)
+        seismic_utm = df_seismic.to_crs(utm_crs)
+        
+        # Create buffer around target point
+        buffer_distance = radius_km * 1000  # convert km to meters
+        target_buffer = target_utm.copy()
+        target_buffer['geometry'] = target_buffer['geometry'].buffer(buffer_distance)
+        
+        # Find seismic events within buffer
+        nearby_seismic = gpd.sjoin(seismic_utm, target_buffer, predicate='within')
+        nearby_seismic = nearby_seismic.to_crs('EPSG:4326')
+        
+        # Calculate risk score
+        seismic_count = len(nearby_seismic)
+        seismic_risk_score = min(seismic_count / 10.0, 1.0)  # Normalize to max 10 events
+        
+        # Determine risk level
+        if seismic_risk_score < 0.3:
+            risk_level = "LOW"
+        elif seismic_risk_score < 0.6:
+            risk_level = "MEDIUM"
+        else:
+            risk_level = "HIGH"
+        
+        # Get details of nearby events
+        event_details = []
+        for _, event in nearby_seismic.head(10).iterrows():  # Limit to 10 closest events
+            event_details.append({
+                'name': event.get('Name', 'Unknown'),
+                'latitude': event.geometry.y,
+                'longitude': event.geometry.x
+            })
+        
+        result = {
+            'seismic_count': seismic_count,
+            'seismic_risk_score': round(seismic_risk_score, 3),
+            'risk_level': risk_level,
+            'radius_km': radius_km,
+            'assessment_location': {'latitude': latitude, 'longitude': longitude},
+            'nearby_events': event_details,
+            'assessment_summary': f"Found {seismic_count} seismic events within {radius_km}km. Risk level: {risk_level}"
+        }
+        
+        return json.dumps(result)
+        
+    except Exception as e:
+        result = {
+            'error': f"Seismic risk assessment failed: {str(e)}",
+            'seismic_count': 0,
+            'seismic_risk_score': 0.0,
+            'risk_level': "UNKNOWN"
+        }
+        return json.dumps(result)
+
+
+def assess_infrastructure_proximity(run_context: RunContext[DataSourceTracker],
+                                   latitude: float, longitude: float,
+                                   infrastructure_types: str = "wells,pipelines,offshore_fields",
+                                   radius_km: float = 50.0) -> str:
+    """
+    Assess infrastructure proximity risk by counting existing infrastructure within a radius.
+    
+    Args:
+        latitude: Latitude coordinate
+        longitude: Longitude coordinate
+        infrastructure_types: Comma-separated infrastructure types to check (wells,pipelines,offshore_fields)
+        radius_km: Search radius in kilometers (default: 50km)
+    
+    Return:
+        JSON string with infrastructure proximity assessment
+    """
+    
+    try:
+        # Parse infrastructure types
+        if isinstance(infrastructure_types, str):
+            infrastructure_list = [t.strip() for t in infrastructure_types.split(',')]
+        else:
+            # Fallback option
+            infrastructure_list = ["wells", "pipelines", "offshore_fields"]
+        
+        # Validate infrastructure types
+        valid_types = ["wells", "pipelines", "offshore_fields", "licences", "drilling"]
+        infrastructure_list = [t for t in infrastructure_list if t in valid_types]
+        
+        if not infrastructure_list:
+            infrastructure_list = ["wells", "pipelines", "offshore_fields"]
+        
+        # add_data_source(run_context, infrastructure_list)
+        for infra_name in infrastructure_list:
+            add_data_source(run_context, infra_name)
+        
+        # Create target point
+        target_point = Point(longitude, latitude)
+        target_gdf = gpd.GeoDataFrame([{'geometry': target_point}], crs='EPSG:4326')
+        utm_crs = target_gdf.estimate_utm_crs()
+        target_utm = target_gdf.to_crs(utm_crs)
+        
+        # Create buffer
+        buffer_distance = radius_km * 1000
+        target_buffer = target_utm.copy()
+        target_buffer['geometry'] = target_buffer['geometry'].buffer(buffer_distance)
+        
+        # Check each infrastructure type
+        infrastructure_details = {}
+        total_infrastructure_count = 0
+        
+        for infra_type in infrastructure_list:
+            df_infra = load_data_and_process(infra_type)
+            infra_utm = df_infra.to_crs(utm_crs)
+            
+            # Find nearby infrastructure
+            nearby_infra = gpd.sjoin(infra_utm, target_buffer, predicate='within')
+            count = len(nearby_infra)
+            
+            infrastructure_details[infra_type] = {
+                'count': count,
+                'examples': [
+                    {
+                        'name': row.get('Name', 'Unknown'),
+                        'latitude': row.geometry.y if hasattr(row.geometry, 'y') else None,
+                        'longitude': row.geometry.x if hasattr(row.geometry, 'x') else None
+                    }
+                    for _, row in nearby_infra.to_crs('EPSG:4326').head(5).iterrows()
+                ]
+            }
+            
+            total_infrastructure_count += count
+        
+        # Calculate risk score
+        infrastructure_risk_score = min(total_infrastructure_count / 20.0, 1.0)  # Normalize to max 20 items
+        
+        # Determine risk level
+        if infrastructure_risk_score < 0.3:
+            risk_level = "LOW"
+        elif infrastructure_risk_score < 0.6:
+            risk_level = "MEDIUM"
+        else:
+            risk_level = "HIGH"
+        
+        result = {
+            'total_infrastructure_count': total_infrastructure_count,
+            'infrastructure_risk_score': round(infrastructure_risk_score, 3),
+            'risk_level': risk_level,
+            'radius_km': radius_km,
+            'assessment_location': {'latitude': latitude, 'longitude': longitude},
+            'infrastructure_breakdown': infrastructure_details,
+            'assessment_summary': f"Found {total_infrastructure_count} infrastructure features within {radius_km}km. Risk level: {risk_level}"
+        }
+        
+        return json.dumps(result)
+        
+    except Exception as e:
+        result = {
+            'error': f"Infrastructure proximity assessment failed: {str(e)}",
+            'total_infrastructure_count': 0,
+            'infrastructure_risk_score': 0.0,
+            'risk_level': "UNKNOWN"
+        }
+        return json.dumps(result)
+
+
+def calculate_overall_risk_score(run_context: RunContext[DataSourceTracker],
+                                seismic_risk: float, infrastructure_risk: float,
+                                environmental_risk: float = 0.3) -> str:
+    """
+    Calculate overall risk score from individual risk components and provide recommendations.
+    
+    Args:
+        seismic_risk: Seismic risk score (0.0-1.0)
+        infrastructure_risk: Infrastructure proximity risk score (0.0-1.0)
+        environmental_risk: Environmental risk score (0.0-1.0, default: 0.3)
+    
+    Return:
+        JSON string with overall risk assessment and recommendations
+    """
+    
+    try:
+        # Validate inputs
+        seismic_risk = max(0.0, min(1.0, seismic_risk))
+        infrastructure_risk = max(0.0, min(1.0, infrastructure_risk))
+        environmental_risk = max(0.0, min(1.0, environmental_risk))
+        
+        # Weighted overall score
+        weights = {'seismic': 0.4, 'infrastructure': 0.3, 'environmental': 0.3}
+        overall_risk = (weights['seismic'] * seismic_risk + 
+                       weights['infrastructure'] * infrastructure_risk + 
+                       weights['environmental'] * environmental_risk)
+        
+        # Risk categories
+        if overall_risk < 0.3:
+            risk_level = "LOW"
+            risk_color = "green"
+        elif overall_risk < 0.6:
+            risk_level = "MEDIUM"
+            risk_color = "yellow"
+        else:
+            risk_level = "HIGH"
+            risk_color = "red"
+        
+        # Generate recommendations
+        recommendations = []
+        if seismic_risk > 0.5:
+            recommendations.append("High seismic activity detected - consider enhanced seismic monitoring and earthquake-resistant design")
+        if infrastructure_risk > 0.5:
+            recommendations.append("High infrastructure density - ensure coordination with existing facilities and assess cumulative impacts")
+        if environmental_risk > 0.5:
+            recommendations.append("Environmental sensitivity detected - conduct detailed environmental impact assessment")
+        if overall_risk < 0.3:
+            recommendations.append("Location shows favorable conditions for infrastructure development")
+        if overall_risk > 0.7:
+            recommendations.append("Consider alternative locations due to high cumulative risk")
+        
+        # Risk mitigation strategies
+        mitigation_strategies = []
+        if seismic_risk > 0.3:
+            mitigation_strategies.append("Implement real-time seismic monitoring systems")
+        if infrastructure_risk > 0.3:
+            mitigation_strategies.append("Coordinate with existing infrastructure operators")
+        if environmental_risk > 0.3:
+            mitigation_strategies.append("Develop comprehensive environmental management plan")
+        
+        result = {
+            'overall_risk_score': round(overall_risk, 3),
+            'risk_level': risk_level,
+            'risk_color': risk_color,
+            'component_risks': {
+                'seismic': round(seismic_risk, 3),
+                'infrastructure': round(infrastructure_risk, 3),
+                'environmental': round(environmental_risk, 3)
+            },
+            'risk_weights': weights,
+            'recommendations': recommendations,
+            'mitigation_strategies': mitigation_strategies,
+            'assessment_summary': f"Overall risk level: {risk_level} (score: {overall_risk:.2f}/1.0)"
+        }
+        
+        return json.dumps(result)
+        
+    except Exception as e:
+        result = {
+            'error': f"Risk calculation failed: {str(e)}",
+            'overall_risk_score': 0.5,
+            'risk_level': "UNKNOWN"
+        }
+        return json.dumps(result)
+
+
+def create_risk_assessment_map(run_context: RunContext[DataSourceTracker],
+                              latitude: float, longitude: float,
+                              location_name: str = "Assessment Location",
+                              risk_level: str = "MEDIUM",
+                              radius_km: float = 50.0) -> str:
+    """
+    Create an interactive map visualization for risk assessment results.
+    
+    Args:
+        latitude: Assessment location latitude
+        longitude: Assessment location longitude
+        location_name: Name/description of the assessment location
+        risk_level: Risk level (LOW/MEDIUM/HIGH) for marker color
+        radius_km: Assessment radius to display (default: 50km)
+    
+    Return:
+        JSON string with map HTML and summary - FORMATTED FOR DISPLAY
+    """
+    
+    try:
+        # Create map centered on assessment location
+        m = folium.Map(
+            location=[latitude, longitude],
+            zoom_start=8,
+            tiles="CartoDB positron"
+        )
+        
+        # Determine marker color based on risk level
+        color_map = {'LOW': 'green', 'MEDIUM': 'orange', 'HIGH': 'red'}
+        marker_color = color_map.get(risk_level.upper(), 'blue')
+        
+        # Add assessment location marker
+        folium.Marker(
+            location=[latitude, longitude],
+            popup=f"""
+            <b>Risk Assessment Location</b><br>
+            Location: {location_name}<br>
+            Coordinates: {latitude:.4f}, {longitude:.4f}<br>
+            Risk Level: <b style='color:{marker_color}'>{risk_level}</b>
+            """,
+            tooltip=f"Assessment Location: {risk_level} Risk",
+            icon=folium.Icon(color=marker_color, icon='star')
+        ).add_to(m)
+        
+        # Add assessment radius circle
+        folium.Circle(
+            location=[latitude, longitude],
+            radius=radius_km * 1000,  # Convert km to meters
+            popup=f"Assessment Radius: {radius_km} km",
+            color='blue',
+            weight=2,
+            fill=False,
+            dashArray='5, 5'
+        ).add_to(m)
+        
+        # Load and add nearby seismic events
+        try:
+            df_seismic = load_data_and_process("seismic")
+            target_point = Point(longitude, latitude)
+            target_gdf = gpd.GeoDataFrame([{'geometry': target_point}], crs='EPSG:4326')
+            utm_crs = target_gdf.estimate_utm_crs()
+            target_utm = target_gdf.to_crs(utm_crs)
+            seismic_utm = df_seismic.to_crs(utm_crs)
+            
+            buffer_distance = radius_km * 1000
+            target_buffer = target_utm.copy()
+            target_buffer['geometry'] = target_buffer['geometry'].buffer(buffer_distance)
+            
+            nearby_seismic = gpd.sjoin(seismic_utm, target_buffer, predicate='within')
+            nearby_seismic = nearby_seismic.to_crs('EPSG:4326')
+            
+            # Add seismic markers (limit to 20 for performance)
+            for idx, row in nearby_seismic.head(20).iterrows():
+                if hasattr(row.geometry, 'y'):
+                    folium.CircleMarker(
+                        location=[row.geometry.y, row.geometry.x],
+                        radius=4,
+                        popup=f"Seismic Event: {row.get('Name', 'Unknown')}",
+                        color='red',
+                        fillColor='red',
+                        fillOpacity=0.7
+                    ).add_to(m)
+        except Exception as e:
+            print(f"Could not add seismic data to map: {e}")
+        
+        # Add basic legend
+        legend_html = f'''
+        <div style="position: fixed; top: 10px; right: 10px; width: 250px; height: 150px; 
+                    background-color: white; border:2px solid grey; z-index:9999; 
+                    font-size:12px; padding: 10px">
+        <h4>Risk Assessment Map</h4>
+        <p><i class="fa fa-star" style="color:{marker_color}"></i> Assessment Location ({risk_level} Risk)</p>
+        <p><i class="fa fa-circle" style="color:red"></i> Seismic Events</p>
+        <p><span style="color:blue; font-weight:bold;">- - -</span> Assessment Radius ({radius_km} km)</p>
+        </div>
+        '''
+        m.get_root().html.add_child(folium.Element(legend_html))        
+        
+        map_html = m.get_root().render()
+        
+        # Instead of returning raw JSON, return formatted output
+        summary = f"""
+**RISK ASSESSMENT MAP GENERATED**
+
+**Location:** {location_name}  
+**Coordinates:** {latitude:.4f}, {longitude:.4f}  
+**Risk Level:** {risk_level}  
+**Assessment Radius:** {radius_km} km  
+
+The interactive risk assessment map has been created showing:
+- Assessment location marked with {risk_level.lower()} risk indicator
+- Seismic events within the assessment radius  
+- {radius_km}km radius boundary
+- Clickable markers with detailed information
+
+The map provides a comprehensive spatial view of risk factors in the area.
+        """
+        
+        result = {
+            'report': summary,
+            'map_html': map_html
+        }
+        
+        return json.dumps(result)
+        
+    except Exception as e:
+        error_summary = f"""
+**MAP GENERATION FAILED**
+
+Location: {location_name}
+Error: {str(e)}
+
+Unable to create risk assessment map visualization.
+        """
+        
+        result = {
+            'report': error_summary,
+            'map_html': '<div style="height: 400px; display: flex; align-items: center; justify-content: center; color: red;">Map creation failed</div>'
+        }
+        
+        return json.dumps(result)
+

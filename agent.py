@@ -23,8 +23,13 @@ from tools import analyse_and_plot_features_and_nearby_infrastructure,\
     analyse_using_mcda_then_plot,\
     mcda,\
     perform_scenario_analysis_then_plot,\
-    get_scenario_weights
-
+    get_scenario_weights,\
+    geocode_location,\
+    assess_seismic_risk_at_location,\
+    assess_infrastructure_proximity,\
+    calculate_overall_risk_score,\
+    create_risk_assessment_map
+    
 
 def show_seismic_dataset(run_context: RunContext):
     """ Show the seismic dataset.
@@ -60,12 +65,12 @@ def get_available_data_sources(run_context: RunContext):
 app = BedrockAgentCoreApp()
 
 # model = BedrockConverseModel('us.anthropic.claude-sonnet-4-20250514-v1:0')
-model = BedrockConverseModel('us.anthropic.claude-sonnet-4-5-20250929-v1:0')
-# model = BedrockConverseModel('us.anthropic.claude-3-5-haiku-20241022-v1:0')
+# model = BedrockConverseModel('us.anthropic.claude-sonnet-4-5-20250929-v1:0')
+model = BedrockConverseModel('us.anthropic.claude-3-5-haiku-20241022-v1:0')
 
 model_settings = ModelSettings(
     max_retries=6,  # Retry on throttling
-    retry_delay=2.0  # Wait 2 seconds between retries
+    retry_delay=5.0   # Wait between retries
 )
 
 dummy_agent = Agent(
@@ -77,19 +82,78 @@ dummy_agent = Agent(
             function=get_available_data_sources,
             takes_ctx=True, 
             description="Get list of available datasets"
-        ),        
+        ),
+        Tool(
+            function=geocode_location,
+            takes_ctx=True, 
+            description="Convert a location name or address to latitude and longitude coordinates."
+        ),
+        Tool(
+            function=assess_seismic_risk_at_location,
+            takes_ctx=True, 
+            description="Assess seismic risk by counting earthquake events within a radius of a specific location."
+        ),
+        Tool(
+            function=assess_infrastructure_proximity,
+            takes_ctx=True, 
+            description="Assess infrastructure proximity risk by counting existing infrastructure within a radius."
+        ),
+
+        Tool(
+            function=calculate_overall_risk_score,
+            takes_ctx=True, 
+            description="Calculate overall risk score from individual risk components and provide recommendations."
+        ),
+        
+        # calculate_overall_risk_score,
+        # create_risk_assessment_map,
+
+
     ],
     deps_type=DataSourceTracker,
-    # system_prompt=""""You're a helpful assistant. Use the tools available for you to answer questions.""",
 
-    system_prompt="""
-You're a helpful assistant. Use the tools available for you to answer questions.
+    system_prompt = """
+You're a helpful assistant specialized in energy infrastructure analysis and risk assessment. 
+
+IMPORTANT: When users ask for comprehensive analyses like "assess risk", "evaluate location", or "analyze infrastructure", you should use MULTIPLE tools in sequence to provide complete answers.
+
+TOOL CHAINING PATTERNS:
+
+For "risk assessment" queries:
+1. If location is a name/address → geocode_location first
+2. Then assess_seismic_risk_at_location 
+3. Then assess_infrastructure_proximity
+4. Then calculate_overall_risk_score
+5. Finally create_risk_assessment_map for visualization
+
+For "infrastructure analysis":
+1. Use appropriate analysis tools (analyse_and_plot_features_and_nearby_infrastructure, etc.)
+2. Add mapping/visualization tools when helpful
+
+For "multi-criteria analysis":
+1. Use MCDA tools (analyse_using_mcda_then_plot, perform_scenario_analysis_then_plot)
+
+CRITICAL: Don't stop after just getting coordinates or one piece of information. The user expects a complete analysis when they ask for "assessment" or "analysis".
+
+When you get coordinates from geocode_location, immediately use those coordinates in subsequent risk assessment tools.
 
 SYSTEM:
 Show your reasoning explicitly in <think>...</think> tags.
 Keep it concise and structured.
-
+Continue analysis until you've fully answered the user's question.
 """
+
+
+    # system_prompt=""""You're a helpful assistant. Use the tools available for you to answer questions.""",
+
+#     system_prompt="""
+# You're a helpful assistant. Use the tools available for you to answer questions.
+
+# SYSTEM:
+# Show your reasoning explicitly in <think>...</think> tags.
+# Keep it concise and structured.
+
+# """
 )
 
 conversation_histories = {}
@@ -122,6 +186,13 @@ def pydantic_bedrock_claude_main(payload):
             analyse_and_plot_within_op,
             analyse_using_mcda_then_plot,
             perform_scenario_analysis_then_plot,
+
+            # geocode_location,
+            # assess_seismic_risk_at_location,
+            # assess_infrastructure_proximity,
+            # calculate_overall_risk_score,
+            create_risk_assessment_map,
+            
             str],  # Functions passed here!
         model_settings=model_settings,
         message_history=conversation_histories[session_id],                   
