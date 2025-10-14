@@ -1435,9 +1435,9 @@ def assess_infrastructure_proximity(run_context: RunContext[DataSourceTracker],
         if not infrastructure_list:
             infrastructure_list = ["wells", "pipelines", "offshore_fields"]
         
-        # add_data_source(run_context, infrastructure_list)
-        for infra_name in infrastructure_list:
-            add_data_source(run_context, infra_name)
+        add_data_source(run_context, infrastructure_list)
+        # for infra_name in infrastructure_list:
+        #     add_data_source(run_context, infra_name)
         
         # Create target point
         target_point = Point(longitude, latitude)
