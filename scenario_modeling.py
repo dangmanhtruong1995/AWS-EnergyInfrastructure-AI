@@ -44,13 +44,10 @@ class MCDAEngine:
         self.df_dict = df_dict
 
 
-    def run_mcda(self):
-        pass
-
-
     def get_objective_list(self):
         obj_list = ["safety", "economic", "technical", "environment"]
         return obj_list
+
 
     def calculate_objective(self, obj_name):
         if obj_name == "safety":
@@ -120,8 +117,19 @@ class MCDAEngine:
             licence = df_dict["licences"]["geometry"].iloc[licence_idx]
             intersects = licence.intersects(df_dict["pipelines"]["geometry"])
             num_pipelines_going_through_licence[licence_idx] = np.sum(intersects)
-        tech_obj = num_pipelines_going_through_licence
 
+        # ADD: Windfarms calculation for technical feasibility
+        num_windfarms_nearby_licence = np.zeros(n_licence)
+        if "windfarms" in df_dict:
+            for licence_idx in range(n_licence):
+                licence = df_dict["licences"]["geometry"].iloc[licence_idx]
+                # Check for windfarms within or intersecting the licence
+                intersects = licence.intersects(df_dict["windfarms"]["geometry"])
+                num_windfarms_nearby_licence[licence_idx] = np.sum(intersects)
+
+        # Combine pipelines and windfarms for technical score
+        tech_obj = num_pipelines_going_through_licence + num_windfarms_nearby_licence
+        
         # Normalize and invert for technical (make all objectives higher is worse)
         tech_obj_normalized = (tech_obj - np.min(tech_obj)) / (np.max(tech_obj) - np.min(tech_obj))
         tech_obj_normalized = 1 - tech_obj_normalized
