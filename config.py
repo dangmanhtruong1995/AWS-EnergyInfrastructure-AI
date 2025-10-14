@@ -68,6 +68,7 @@ DATASET_S3_KEYS = {
     "pipelines": "datasets/UKCS_OFF_WGS84/UKCS_Pipeline_Linear_WGS84.shp",
     "offshore_fields": "datasets/UKCS_OFF_WGS84/UKCS_Offshore_Fields_WGS84.shp",
     "wells": "datasets/UKCS_OFF_WGS84/UKCS_Wells_WGS84.shp",
+    "windfarms": "datasets/EMODNet_windfarms/EMODnet_HA_Energy_WindFarms_pg_20250825.shp",
 }
 
 # Simple function to get local path
@@ -87,6 +88,7 @@ DATASET_LEGEND_DICT = {
     "pipelines": "Pipelines",
     "offshore_fields": "Offshore field locations",
     "wells": "Well locations",
+    "windfarms": "Active Offshore Wind Farms",
 }
 
 DATASET_SYMBOL_DICT = {

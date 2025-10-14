@@ -26,6 +26,9 @@ def add_data_source(run_context, layer_list):
             run_context.deps.add_source("UKCS pipeline data (https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8)")
         elif layer_name == "offshore_fields":
             run_context.deps.add_source("UKCS offshore fields data (https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8)")
+        elif layer_name == "windfarms":
+            run_context.deps.add_source("EMODNet active offshore wind farms data (https://emodnet.ec.europa.eu/)")
+
     
 
 
@@ -120,6 +123,12 @@ def load_data_and_process(layer_name: str):
     elif layer_name == "wells":
         df.rename(columns={'WELLREGNO': 'Name'}, inplace=True)
         df = df[["geometry", "Name", "ORIGINSTAT"]]
+
+    elif layer_name == "windfarms":
+        # Filter for active windfarms only
+        df = df[df["STATUS"].isin(["Construction", "Production"])]
+        df['Name'] = df['NAME'].fillna('Unnamed') + ' (' + df['POWER_MW'].astype(str) + 'MW)'
+        df = df[["geometry", "Name"]]
     
     # Ensure it's a GeoDataFrame
     if not isinstance(df, gpd.GeoDataFrame):

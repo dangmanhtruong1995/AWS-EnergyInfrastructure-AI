@@ -71,7 +71,8 @@ def mcda(run_context: RunContext, target:str, obj_1: str, obj_2: str, obj_3: str
         print(f"Objectives ARE: {obj_list}")
 
     df_dict = {}
-    layer_list = ["licences", "wells", "seismic", "drilling", "pipelines", "offshore_fields"]
+    # layer_list = ["licences", "wells", "seismic", "drilling", "pipelines", "offshore_fields"]
+    layer_list = DATASET_LIST
 
     for layer_name in layer_list:
         start = time.time()
@@ -687,18 +688,7 @@ def analyse_and_plot_features_and_nearby_infrastructure(run_context: RunContext[
     {legend_text_2}
     </div>
     '''
-    """
-    legend_html = f'''
-    <div style="position: fixed; 
-                top: 10px; right: 10px; width: 250px; height: 140px; 
-                background-color: white; border:2px solid grey; z-index:9999; 
-                font-size:14px; padding: 10px">
-    <h4>Legend</h4>
-    <p><i class="fa fa-map-marker" style="color:red"></i> {DATASET_LEGEND_DICT.get(layer_1, layer_1.title())}</p>
-    <p><span style="color:blue; font-weight:bold;">━━</span> {DATASET_LEGEND_DICT.get(layer_2, layer_2.title())}</p>    
-    </div>
-    '''
-    """
+
     m.get_root().html.add_child(folium.Element(legend_html))
     map_html = m.get_root().render()
 
@@ -746,7 +736,8 @@ def analyse_using_mcda_then_plot(run_context: RunContext, target:str,
     print(run_context)
     print()
 
-    layer_list = ["licences", "wells", "seismic", "drilling", "pipelines", "offshore_fields"]
+    # layer_list = ["licences", "wells", "seismic", "drilling", "pipelines", "offshore_fields"]
+    layer_list = DATASET_LIST
     add_data_source(run_context, layer_list)
 
     report, df_rank = run_mcda(target, obj_1, obj_2, obj_3, obj_4, w_1, w_2, w_3, w_4)
@@ -839,7 +830,8 @@ def get_scenario_weights(run_context: RunContext, scenario_name: str = None) -> 
         JSON string containing scenario weights information
     """
 
-    layer_list = ["licences", "wells", "seismic", "drilling", "pipelines", "offshore_fields"]
+    # layer_list = ["licences", "wells", "seismic", "drilling", "pipelines", "offshore_fields"]
+    layer_list = DATASET_LIST
     add_data_source(run_context, layer_list)
 
     if scenario_name is None:
@@ -1405,7 +1397,7 @@ def assess_seismic_risk_at_location(run_context: RunContext[DataSourceTracker],
 
 def assess_infrastructure_proximity(run_context: RunContext[DataSourceTracker],
                                    latitude: float, longitude: float,
-                                   infrastructure_types: str = "wells,pipelines,offshore_fields",
+                                   infrastructure_types: str = "wells,pipelines,offshore_fields,windfarms",
                                    radius_km: float = 50.0) -> str:
     """
     Assess infrastructure proximity risk by counting existing infrastructure within a radius.
@@ -1426,14 +1418,14 @@ def assess_infrastructure_proximity(run_context: RunContext[DataSourceTracker],
             infrastructure_list = [t.strip() for t in infrastructure_types.split(',')]
         else:
             # Fallback option
-            infrastructure_list = ["wells", "pipelines", "offshore_fields"]
+            infrastructure_list = ["wells", "pipelines", "offshore_fields", "windfarms"]
         
         # Validate infrastructure types
-        valid_types = ["wells", "pipelines", "offshore_fields", "licences", "drilling"]
+        valid_types = ["wells", "pipelines", "offshore_fields", "licences", "drilling", "windfarms"]
         infrastructure_list = [t for t in infrastructure_list if t in valid_types]
         
         if not infrastructure_list:
-            infrastructure_list = ["wells", "pipelines", "offshore_fields"]
+            infrastructure_list = ["wells", "pipelines", "offshore_fields", "windfarms"]
         
         add_data_source(run_context, infrastructure_list)
         # for infra_name in infrastructure_list:
@@ -1595,148 +1587,6 @@ def calculate_overall_risk_score(run_context: RunContext[DataSourceTracker],
         }
         return json.dumps(result)
 
-
-# def create_risk_assessment_map(run_context: RunContext[DataSourceTracker],
-#                               latitude: float, longitude: float,
-#                               location_name: str = "Assessment Location",
-#                               risk_level: str = "MEDIUM",
-#                               radius_km: float = 50.0) -> str:
-#     """
-#     Create an interactive map visualization for risk assessment results.
-    
-#     Args:
-#         latitude: Assessment location latitude
-#         longitude: Assessment location longitude
-#         location_name: Name/description of the assessment location
-#         risk_level: Risk level (LOW/MEDIUM/HIGH) for marker color
-#         radius_km: Assessment radius to display (default: 50km)
-    
-#     Return:
-#         JSON string with map HTML and summary - FORMATTED FOR DISPLAY
-#     """
-    
-#     try:
-#         # Create map centered on assessment location
-#         m = folium.Map(
-#             location=[latitude, longitude],
-#             zoom_start=8,
-#             tiles="CartoDB positron"
-#         )
-        
-#         # Determine marker color based on risk level
-#         color_map = {'LOW': 'green', 'MEDIUM': 'orange', 'HIGH': 'red'}
-#         marker_color = color_map.get(risk_level.upper(), 'blue')
-        
-#         # Add assessment location marker
-#         folium.Marker(
-#             location=[latitude, longitude],
-#             popup=f"""
-#             <b>Risk Assessment Location</b><br>
-#             Location: {location_name}<br>
-#             Coordinates: {latitude:.4f}, {longitude:.4f}<br>
-#             Risk Level: <b style='color:{marker_color}'>{risk_level}</b>
-#             """,
-#             tooltip=f"Assessment Location: {risk_level} Risk",
-#             icon=folium.Icon(color=marker_color, icon='star')
-#         ).add_to(m)
-        
-#         # Add assessment radius circle
-#         folium.Circle(
-#             location=[latitude, longitude],
-#             radius=radius_km * 1000,  # Convert km to meters
-#             popup=f"Assessment Radius: {radius_km} km",
-#             color='blue',
-#             weight=2,
-#             fill=False,
-#             dashArray='5, 5'
-#         ).add_to(m)
-        
-#         # Load and add nearby seismic events
-#         try:
-#             df_seismic = load_data_and_process("seismic")
-#             target_point = Point(longitude, latitude)
-#             target_gdf = gpd.GeoDataFrame([{'geometry': target_point}], crs='EPSG:4326')
-#             utm_crs = target_gdf.estimate_utm_crs()
-#             target_utm = target_gdf.to_crs(utm_crs)
-#             seismic_utm = df_seismic.to_crs(utm_crs)
-            
-#             buffer_distance = radius_km * 1000
-#             target_buffer = target_utm.copy()
-#             target_buffer['geometry'] = target_buffer['geometry'].buffer(buffer_distance)
-            
-#             nearby_seismic = gpd.sjoin(seismic_utm, target_buffer, predicate='within')
-#             nearby_seismic = nearby_seismic.to_crs('EPSG:4326')
-            
-#             # Add seismic markers (limit to 20 for performance)
-#             for idx, row in nearby_seismic.head(20).iterrows():
-#                 if hasattr(row.geometry, 'y'):
-#                     folium.CircleMarker(
-#                         location=[row.geometry.y, row.geometry.x],
-#                         radius=4,
-#                         popup=f"Seismic Event: {row.get('Name', 'Unknown')}",
-#                         color='red',
-#                         fillColor='red',
-#                         fillOpacity=0.7
-#                     ).add_to(m)
-#         except Exception as e:
-#             print(f"Could not add seismic data to map: {e}")
-        
-#         # Add basic legend
-#         legend_html = f'''
-#         <div style="position: fixed; top: 10px; right: 10px; width: 250px; height: 150px; 
-#                     background-color: white; border:2px solid grey; z-index:9999; 
-#                     font-size:12px; padding: 10px">
-#         <h4>Risk Assessment Map</h4>
-#         <p><i class="fa fa-star" style="color:{marker_color}"></i> Assessment Location ({risk_level} Risk)</p>
-#         <p><i class="fa fa-circle" style="color:red"></i> Seismic Events</p>
-#         <p><span style="color:blue; font-weight:bold;">- - -</span> Assessment Radius ({radius_km} km)</p>
-#         </div>
-#         '''
-#         m.get_root().html.add_child(folium.Element(legend_html))        
-        
-#         map_html = m.get_root().render()
-        
-#         # Instead of returning raw JSON, return formatted output
-#         summary = f"""
-# **RISK ASSESSMENT MAP GENERATED**
-
-# **Location:** {location_name}  
-# **Coordinates:** {latitude:.4f}, {longitude:.4f}  
-# **Risk Level:** {risk_level}  
-# **Assessment Radius:** {radius_km} km  
-
-# The interactive risk assessment map has been created showing:
-# - Assessment location marked with {risk_level.lower()} risk indicator
-# - Seismic events within the assessment radius  
-# - {radius_km}km radius boundary
-# - Clickable markers with detailed information
-
-# The map provides a comprehensive spatial view of risk factors in the area.
-#         """
-        
-#         result = {
-#             'report': summary,
-#             'map_html': map_html
-#         }
-        
-#         return json.dumps(result)
-        
-#     except Exception as e:
-#         error_summary = f"""
-# **MAP GENERATION FAILED**
-
-# Location: {location_name}
-# Error: {str(e)}
-
-# Unable to create risk assessment map visualization.
-#         """
-        
-#         result = {
-#             'report': error_summary,
-#             'map_html': '<div style="height: 400px; display: flex; align-items: center; justify-content: center; color: red;">Map creation failed</div>'
-#         }
-        
-#         return json.dumps(result)
 
 def create_risk_assessment_map(run_context: RunContext[DataSourceTracker],
                               latitude: float, longitude: float,
@@ -1975,6 +1825,47 @@ def create_risk_assessment_map(run_context: RunContext[DataSourceTracker],
             print(f"Could not add offshore fields data to map: {e}")
             infrastructure_counts['offshore_fields'] = 0
         
+        # Add windfarms - single color treatment
+        try:
+            df_windfarms = load_data_and_process("windfarms")
+            windfarms_utm = df_windfarms.to_crs(utm_crs)
+            nearby_windfarms = gpd.sjoin(windfarms_utm, target_buffer, predicate='intersects')
+            nearby_windfarms = nearby_windfarms.to_crs('EPSG:4326')
+            
+            # Add windfarm polygons - all same style
+            windfarm_count = 0
+            for idx, row in nearby_windfarms.head(20).iterrows():
+                try:
+                    geom = row['geometry']
+                    name = row.get('Name', f'Windfarm {idx}')
+                    
+                    if geom.geom_type == 'Polygon':
+                        exterior_coords = list(geom.exterior.coords)
+                        folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+                        
+                        folium.Polygon(
+                            locations=folium_coords,
+                            popup=f"Active Windfarm: {name}",
+                            tooltip=f"Windfarm: {name}",
+                            color='darkgreen',
+                            weight=2,
+                            opacity=0.8,
+                            fillColor='lightgreen',
+                            fillOpacity=0.4
+                        ).add_to(m)
+                        windfarm_count += 1
+                        
+                except Exception as e:
+                    print(f"Error plotting windfarm {idx}: {e}")
+                    continue
+            
+            infrastructure_counts['windfarms'] = len(nearby_windfarms)
+            
+        except Exception as e:
+            print(f"Could not add windfarm data to map: {e}")
+            infrastructure_counts['windfarms'] = 0
+
+
         # Enhanced legend with actual counts
         legend_html = f'''
         <div style="position: fixed; top: 10px; right: 10px; width: 280px; height: 200px; 
@@ -1986,6 +1877,7 @@ def create_risk_assessment_map(run_context: RunContext[DataSourceTracker],
         <p><i class="fa fa-tint" style="color:darkblue"></i> Wells ({infrastructure_counts.get('wells', 0)})</p>
         <p><span style="color:cyan; font-weight:bold;">━━</span> Pipelines ({infrastructure_counts.get('pipelines', 0)})</p>
         <p><span style="color:purple;">▬</span> Offshore Fields ({infrastructure_counts.get('offshore_fields', 0)})</p>
+        <p><span style="color:darkgreen;">▬</span> Windfarms ({infrastructure_counts.get('windfarms', 0)})</p>
         <p><span style="color:blue; font-weight:bold;">- - -</span> Assessment Radius ({radius_km} km)</p>
         </div>
         '''
@@ -2008,6 +1900,7 @@ def create_risk_assessment_map(run_context: RunContext[DataSourceTracker],
 - Wells: {infrastructure_counts.get('wells', 0)}
 - Pipelines: {infrastructure_counts.get('pipelines', 0)}
 - Offshore Fields: {infrastructure_counts.get('offshore_fields', 0)}
+- Windfarms: {infrastructure_counts.get('windfarms', 0)}
 - **Total: {total_infrastructure} features**
 
 The interactive map displays all detected infrastructure within the assessment radius with different colors and symbols for each type. Click on markers and lines for detailed information.
