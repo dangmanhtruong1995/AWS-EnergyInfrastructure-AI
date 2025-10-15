@@ -21,14 +21,14 @@ from schemas import DataSourceTracker, ReportMapOutput
 from tools import analyse_and_plot_features_and_nearby_infrastructure,\
     analyse_and_plot_within_op,\
     analyse_using_mcda_then_plot,\
-    mcda,\
     perform_scenario_analysis_then_plot,\
     get_scenario_weights,\
     geocode_location,\
     assess_seismic_risk_at_location,\
     assess_infrastructure_proximity,\
     calculate_overall_risk_score,\
-    create_risk_assessment_map
+    create_risk_assessment_map,\
+    plan_low_impact_exploration_sites
     
 
 def show_seismic_dataset(run_context: RunContext):
@@ -181,18 +181,12 @@ def pydantic_bedrock_claude_main(payload):
     result = dummy_agent.run_sync(user_input,
         deps=deps,
         output_type=[
-            # mcda,
             analyse_and_plot_features_and_nearby_infrastructure,
             analyse_and_plot_within_op,
             analyse_using_mcda_then_plot,
             perform_scenario_analysis_then_plot,
-
-            # geocode_location,
-            # assess_seismic_risk_at_location,
-            # assess_infrastructure_proximity,
-            # calculate_overall_risk_score,
             create_risk_assessment_map,
-            
+            plan_low_impact_exploration_sites,            
             str],  # Functions passed here!
         model_settings=model_settings,
         message_history=conversation_histories[session_id],                   

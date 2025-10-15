@@ -77,16 +77,6 @@ with open("Dockerfile", "w") as f:
 
 print("✅ Modified Dockerfile with GDAL")
 
-# Create a config with better retry handling
-# retry_config = Config(
-#     retries={
-#         'max_attempts': 10,  # Increase max retries
-#         'mode': 'adaptive',  # Use adaptive retry mode
-#         'total_max_attempts': 15  # Total attempts across all retries
-#     },
-#     region_name="us-east-1"
-# )
-
 retry_config = Config(
     connect_timeout=5, 
     read_timeout=60, 
@@ -239,7 +229,6 @@ def query_agent(user_message, session_id):
         return f"⚠️ Error contacting the analysis agent: {e}", "", None
 
 
-
 def generate_data_source_footer(used_sources: Set[str]) -> str:
     if not used_sources:
         return ""
@@ -265,6 +254,8 @@ def generate_data_source_footer(used_sources: Set[str]) -> str:
 
 # Assess the risk for building an offshore wind farm near Aberdeen
 # What about Peterhead ?
+
+# Find all seismic events which are within 100 kilometres from existing wind farms
 
 # === Gradio Frontend ===
 def create_enhanced_interface():
