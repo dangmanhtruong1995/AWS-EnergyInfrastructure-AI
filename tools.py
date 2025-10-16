@@ -1748,341 +1748,131 @@ Unable to create comprehensive risk assessment map visualization.
     
 
 # === Tools relating to exploration planner ===
-def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker],
-                                      goal: str = "minimize environmental impact",
-                                      max_seismic_risk: float = 0.3,
-                                      max_ecological_sensitivity: float = 0.4,
-                                      min_infrastructure_proximity: float = 0.1,
-                                      num_sites: int = 10,
-                                      cell_size_km: float = 5.0,
-                                      ) -> str:
-    """
-    Autonomous exploration planning that identifies low-environmental-impact candidate locations
-    for new exploration/drilling, balancing seismic risk, ecological sensitivity, and infrastructure proximity.
+# def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker],
+#                                       goal: str = "minimize environmental impact",
+#                                       max_seismic_risk: float = 0.3,
+#                                       max_ecological_sensitivity: float = 0.4,
+#                                       min_infrastructure_proximity: float = 0.1,
+#                                       num_sites: int = 10,
+#                                       cell_size_km: float = 5.0,
+#                                       ) -> str:
+#     """
+#     Autonomous exploration planning that identifies low-environmental-impact candidate locations
+#     for new exploration/drilling, balancing seismic risk, ecological sensitivity, and infrastructure proximity.
     
-    Args:
-        goal: Planning objective ("minimize environmental impact", "balance economics and environment", "maximize safety")
-        max_seismic_risk: Maximum acceptable seismic risk score (0.0-1.0)
-        max_ecological_sensitivity: Maximum acceptable ecological sensitivity (0.0-1.0)
-        min_infrastructure_proximity: Minimum required infrastructure proximity (0.0-1.0)
-        num_sites: Number of candidate sites to return
-        cell_size_km: Grid cell size in kilometers
+#     Args:
+#         goal: Planning objective ("minimize environmental impact", "balance economics and environment", "maximize safety")
+#         max_seismic_risk: Maximum acceptable seismic risk score (0.0-1.0)
+#         max_ecological_sensitivity: Maximum acceptable ecological sensitivity (0.0-1.0)
+#         min_infrastructure_proximity: Minimum required infrastructure proximity (0.0-1.0)
+#         num_sites: Number of candidate sites to return
+#         cell_size_km: Grid cell size in kilometers
     
-    Return:
-        JSON string with exploration plan, map, and detailed site analyses
-    """
+#     Return:
+#         JSON string with exploration plan, map, and detailed site analyses
+#     """
     
-    print(f"🎯 Planning exploration sites with goal: {goal}")
-    print(f"📊 Constraints: seismic≤{max_seismic_risk}, ecological≤{max_ecological_sensitivity}, infrastructure≥{min_infrastructure_proximity}")
-    
-    try:
-        # Import the grid system
-        
-        
-        # Add data sources to tracker
-        add_data_source(run_context, ["seismic", "wells", "pipelines", "offshore_fields"])
-        
-        # Initialize grid system
-        grid_system = ExplorationGridSystem(cell_size_km=cell_size_km)
-        
-        # Calculate all scores
-        print("Calculate all grid scores")
-        grid_with_scores = grid_system.get_scored_grid()
-        
-        # Apply constraints to filter suitable cells
-        suitable_cells = grid_with_scores[
-            (grid_with_scores['seismic_score'] <= max_seismic_risk) &
-            (grid_with_scores['ecological_score'] <= max_ecological_sensitivity) &
-            (grid_with_scores['infrastructure_score'] >= min_infrastructure_proximity)
-        ].copy()
-        
-        if len(suitable_cells) == 0:
-            return json.dumps({
-                'error': 'No sites meet the specified constraints',
-                'recommendation': 'Try relaxing constraints or expanding search area',
-                'report': 'No suitable exploration sites found with current criteria.'
-            })
-        
-        print(f"📍 Found {len(suitable_cells)} cells meeting constraints")
-        
-        # Determine weights based on goal
-        if "environmental" in goal.lower() or "minimize" in goal.lower():
-            weights = {'seismic': 0.3, 'ecological': 0.5, 'infrastructure': 0.2}
-            scenario_name = "Environment-Focused"
-        elif "balance" in goal.lower():
-            weights = {'seismic': 0.33, 'ecological': 0.33, 'infrastructure': 0.34}
-            scenario_name = "Balanced"
-        elif "safety" in goal.lower():
-            weights = {'seismic': 0.6, 'ecological': 0.2, 'infrastructure': 0.2}
-            scenario_name = "Safety-Focused"
-        else:
-            weights = {'seismic': 0.3, 'ecological': 0.4, 'infrastructure': 0.3}
-            scenario_name = "Default"
-        
-        # Run MCDA on suitable cells
-        print("Run MCDA on suitable cells ...")
-        ranked_cells = grid_system.run_mcda_analysis(weights)
-        
-        # Filter to only suitable cells and get top candidates
-        ranked_suitable = ranked_cells[
-            (ranked_cells['seismic_score'] <= max_seismic_risk) &
-            (ranked_cells['ecological_score'] <= max_ecological_sensitivity) &
-            (ranked_cells['infrastructure_score'] >= min_infrastructure_proximity)
-        ].head(num_sites)
-        
-        if len(ranked_suitable) == 0:
-            return json.dumps({
-                'error': 'No suitable sites after MCDA ranking',
-                'report': 'MCDA analysis found no sites meeting criteria.'
-            })
-        
-        # Create interactive map
-        print("Create interactive map ...")
-        map_html = create_exploration_map(ranked_suitable, grid_with_scores, weights)
-        
-        # Generate LLM explanations for top sites
-        print("Generate LLM explanations for top sites ...")
-        site_explanations = generate_site_explanations(ranked_suitable.head(5), weights, scenario_name)
-        
-        # Create comprehensive report
-        print("Create comprehensive report ...")
-        report = generate_exploration_report(ranked_suitable, weights, scenario_name, 
-                                           max_seismic_risk, max_ecological_sensitivity, 
-                                           min_infrastructure_proximity)
-        
-        result = {
-            'report': report,
-            'map_html': map_html,
-            'scenario_used': scenario_name,
-            'weights_applied': weights,
-            'total_suitable_sites': len(suitable_cells),
-            'top_candidates': len(ranked_suitable),
-            'site_explanations': site_explanations,
-            'constraints_applied': {
-                'max_seismic_risk': max_seismic_risk,
-                'max_ecological_sensitivity': max_ecological_sensitivity,
-                'min_infrastructure_proximity': min_infrastructure_proximity
-            }
-        }
-        
-        return json.dumps(result)
-        
-    except Exception as e:
-        error_result = {
-            'error': f'Exploration planning failed: {str(e)}',
-            'report': f'Unable to complete exploration planning due to: {str(e)}'
-        }
-        return json.dumps(error_result)
-
-
-# def create_exploration_map(top_sites: gpd.GeoDataFrame, 
-#                           all_grid: gpd.GeoDataFrame, 
-#                           weights: Dict[str, float]) -> str:
-#     """Create map with proper UK geographic context and better centering."""
+#     print(f"🎯 Planning exploration sites with goal: {goal}")
+#     print(f"📊 Constraints: seismic≤{max_seismic_risk}, ecological≤{max_ecological_sensitivity}, infrastructure≥{min_infrastructure_proximity}")
     
 #     try:
-#         print(f"DEBUG: Creating UK-centered map with {len(top_sites)} top sites and {len(all_grid)} grid cells")
+#         # Import the grid system
         
-#         # OPTIMIZATION: Sample grid cells if too many
-#         if len(all_grid) > 10000:
-#             sample_rate = max(1, len(all_grid) // 5000)
-#             sampled_grid = all_grid.iloc[::sample_rate].copy()
-#             print(f"DEBUG: Sampled {len(sampled_grid)} cells from {len(all_grid)} total")
+        
+#         # Add data sources to tracker
+#         add_data_source(run_context, ["seismic", "wells", "pipelines", "offshore_fields"])
+        
+#         # Initialize grid system
+#         grid_system = ExplorationGridSystem(cell_size_km=cell_size_km)
+        
+#         # Calculate all scores
+#         print("Calculate all grid scores")
+#         grid_with_scores = grid_system.get_scored_grid()
+        
+#         # Apply constraints to filter suitable cells
+#         suitable_cells = grid_with_scores[
+#             (grid_with_scores['seismic_score'] <= max_seismic_risk) &
+#             (grid_with_scores['ecological_score'] <= max_ecological_sensitivity) &
+#             (grid_with_scores['infrastructure_score'] >= min_infrastructure_proximity)
+#         ].copy()
+        
+#         if len(suitable_cells) == 0:
+#             return json.dumps({
+#                 'error': 'No sites meet the specified constraints',
+#                 'recommendation': 'Try relaxing constraints or expanding search area',
+#                 'report': 'No suitable exploration sites found with current criteria.'
+#             })
+        
+#         print(f"📍 Found {len(suitable_cells)} cells meeting constraints")
+        
+#         # Determine weights based on goal
+#         if "environmental" in goal.lower() or "minimize" in goal.lower():
+#             weights = {'seismic': 0.3, 'ecological': 0.5, 'infrastructure': 0.2}
+#             scenario_name = "Environment-Focused"
+#         elif "balance" in goal.lower():
+#             weights = {'seismic': 0.33, 'ecological': 0.33, 'infrastructure': 0.34}
+#             scenario_name = "Balanced"
+#         elif "safety" in goal.lower():
+#             weights = {'seismic': 0.6, 'ecological': 0.2, 'infrastructure': 0.2}
+#             scenario_name = "Safety-Focused"
 #         else:
-#             sampled_grid = all_grid.copy()
+#             weights = {'seismic': 0.3, 'ecological': 0.4, 'infrastructure': 0.3}
+#             scenario_name = "Default"
         
-#         # FIXED: Better UK-centered coordinates and zoom
-#         # UK center coordinates that show both land and offshore areas
-#         uk_center_lat = 55.5  # Slightly north to show Scottish waters
-#         uk_center_lon = -2.0   # Centered on UK longitude
+#         # Run MCDA on suitable cells
+#         print("Run MCDA on suitable cells ...")
+#         ranked_cells = grid_system.run_mcda_analysis(weights)
         
-#         print(f"DEBUG: UK-centered map at {uk_center_lat}, {uk_center_lon}")
+#         # Filter to only suitable cells and get top candidates
+#         ranked_suitable = ranked_cells[
+#             (ranked_cells['seismic_score'] <= max_seismic_risk) &
+#             (ranked_cells['ecological_score'] <= max_ecological_sensitivity) &
+#             (ranked_cells['infrastructure_score'] >= min_infrastructure_proximity)
+#         ].head(num_sites)
         
-#         # Create map with better tiles that show land boundaries
-#         m = folium.Map(
-#             location=[uk_center_lat, uk_center_lon],
-#             zoom_start=5,  # Reduced zoom to show more context
-#             tiles="OpenStreetMap",  # Changed from CartoDB to show land better
-#             prefer_canvas=True  # Better performance for many polygons
-#         )
+#         if len(ranked_suitable) == 0:
+#             return json.dumps({
+#                 'error': 'No suitable sites after MCDA ranking',
+#                 'report': 'MCDA analysis found no sites meeting criteria.'
+#             })
         
-#         # Add alternative tile layer that shows land/water contrast better
-#         folium.TileLayer(
-#             tiles="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-#             attr="OpenStreetMap",
-#             name="OpenStreetMap",
-#             overlay=False,
-#             control=True
-#         ).add_to(m)
+#         # Create interactive map
+#         print("Create interactive map ...")
+#         map_html = create_exploration_map(ranked_suitable, grid_with_scores, weights)
         
-#         # Color mapping with higher contrast
-#         def get_suitability_color(score, max_score):
-#             if max_score == 0:
-#                 return '#CCCCCC'
-#             normalized_score = score / max_score
-#             if normalized_score <= 0.33:
-#                 return '#006400'  # Dark Green (more visible)
-#             elif normalized_score <= 0.66:
-#                 return '#FF8C00'  # Dark Orange
-#             else:
-#                 return '#FF0000'  # Red
+#         # Generate LLM explanations for top sites
+#         print("Generate LLM explanations for top sites ...")
+#         site_explanations = generate_site_explanations(ranked_suitable.head(5), weights, scenario_name)
         
-#         # Add background grid with better visibility
-#         max_score = sampled_grid['suitability_score'].max()
-#         print(f"DEBUG: Adding {len(sampled_grid)} background grid cells")
+#         # Create comprehensive report
+#         print("Create comprehensive report ...")
+#         report = generate_exploration_report(ranked_suitable, weights, scenario_name, 
+#                                            max_seismic_risk, max_ecological_sensitivity, 
+#                                            min_infrastructure_proximity)
         
-#         for idx, cell in sampled_grid.iterrows():
-#             try:
-#                 color = get_suitability_color(cell['suitability_score'], max_score)
-                
-#                 if cell.geometry.geom_type == 'Polygon':
-#                     exterior_coords = list(cell.geometry.exterior.coords)
-#                     folium_coords = [[lat, lon] for lon, lat in exterior_coords]
-                    
-#                     # More visible styling
-#                     folium.Polygon(
-#                         locations=folium_coords,
-#                         color=color,
-#                         weight=1.5,  # Slightly thicker borders
-#                         opacity=0.7,  # Higher opacity
-#                         fillColor=color,
-#                         fillOpacity=0.5,  # Higher fill opacity
-#                         popup=f"Cell {cell.get('cell_id', idx)}<br>Score: {cell['suitability_score']:.3f}",
-#                         tooltip=f"Cell {cell.get('cell_id', idx)}"
-#                     ).add_to(m)
-#             except:
-#                 continue
+#         result = {
+#             'report': report,
+#             'map_html': map_html,
+#             'scenario_used': scenario_name,
+#             'weights_applied': weights,
+#             'total_suitable_sites': len(suitable_cells),
+#             'top_candidates': len(ranked_suitable),
+#             'site_explanations': site_explanations,
+#             'constraints_applied': {
+#                 'max_seismic_risk': max_seismic_risk,
+#                 'max_ecological_sensitivity': max_ecological_sensitivity,
+#                 'min_infrastructure_proximity': min_infrastructure_proximity
+#             }
+#         }
         
-#         # Add top candidates with very high visibility
-#         print(f"DEBUG: Adding {len(top_sites)} top candidates")
-#         for idx, site in top_sites.iterrows():
-#             try:
-#                 if site.geometry.geom_type == 'Polygon':
-#                     exterior_coords = list(site.geometry.exterior.coords)
-#                     folium_coords = [[lat, lon] for lon, lat in exterior_coords]
-                    
-#                     popup_html = f"""
-#                     <b>🎯 TOP EXPLORATION SITE #{int(site.get('rank', idx+1))}</b><br>
-#                     <b>Suitability Score:</b> {site.get('suitability_score', 0):.3f} (EXCELLENT)<br>
-#                     <b>Coordinates:</b> {site.get('center_lat', 0):.3f}°N, {abs(site.get('center_lon', 0)):.3f}°W<br>
-#                     <b>Seismic Risk:</b> {site.get('seismic_score', 0):.3f}<br>
-#                     <b>Ecological Sensitivity:</b> {site.get('ecological_score', 0):.3f}<br>
-#                     <b>Infrastructure Proximity:</b> {site.get('infrastructure_score', 0):.3f}
-#                     """
-                    
-#                     # Very visible candidate highlighting
-#                     folium.Polygon(
-#                         locations=folium_coords,
-#                         popup=folium.Popup(popup_html, max_width=300),
-#                         tooltip=f"🎯 EXPLORATION SITE #{int(site.get('rank', idx+1))}",
-#                         color='#00FF00',  # Bright green
-#                         weight=4,  # Thick border
-#                         opacity=1.0,
-#                         fillColor='#32CD32',  # Lime green
-#                         fillOpacity=0.8
-#                     ).add_to(m)
-                    
-#                     # Large visible marker
-#                     folium.Marker(
-#                         location=[site.get('center_lat', 0), site.get('center_lon', 0)],
-#                         popup=popup_html,
-#                         tooltip=f"🎯 SITE #{int(site.get('rank', idx+1))}",
-#                         icon=folium.Icon(
-#                             color='green', 
-#                             icon='star',
-#                             icon_size=(15, 15)  # Larger icon
-#                         )
-#                     ).add_to(m)
-#             except:
-#                 continue
-        
-#         # Add UK coastline reference points
-#         try:
-#             # Add markers for major UK cities for geographic reference
-#             uk_cities = [
-#                 {"name": "London", "lat": 51.5074, "lon": -0.1278},
-#                 {"name": "Edinburgh", "lat": 55.9533, "lon": -3.1883},
-#                 {"name": "Aberdeen", "lat": 57.1497, "lon": -2.0943},
-#                 {"name": "Newcastle", "lat": 54.9783, "lon": -1.6178}
-#             ]
-            
-#             for city in uk_cities:
-#                 folium.CircleMarker(
-#                     location=[city["lat"], city["lon"]],
-#                     radius=5,
-#                     popup=f"🏙️ {city['name']}",
-#                     color='black',
-#                     fillColor='yellow',
-#                     fillOpacity=0.8,
-#                     tooltip=city["name"]
-#                 ).add_to(m)
-#         except:
-#             pass
-        
-#         # Add fewer existing wells but make them more visible
-#         try:
-#             df_wells = load_data_and_process("wells")
-#             wells_to_show = min(15, len(df_wells))  # Reduced number
-#             for idx, well in df_wells.head(wells_to_show).iterrows():
-#                 if hasattr(well.geometry, 'y'):
-#                     folium.CircleMarker(
-#                         location=[well.geometry.y, well.geometry.x],
-#                         radius=4,  # Larger
-#                         popup=f"⚙️ Existing Well: {well.get('Name', 'Unknown')}",
-#                         color='navy',
-#                         fillColor='cyan',  # More visible color
-#                         fillOpacity=0.9,
-#                         tooltip="Existing Infrastructure"
-#                     ).add_to(m)
-#         except:
-#             pass
-        
-#         # Enhanced legend with geographic context
-#         high_count = len(sampled_grid[sampled_grid['suitability_score'] <= max_score * 0.33]) if max_score > 0 else 0
-#         med_count = len(sampled_grid[(sampled_grid['suitability_score'] > max_score * 0.33) & 
-#                                    (sampled_grid['suitability_score'] <= max_score * 0.66)]) if max_score > 0 else 0
-#         low_count = len(sampled_grid[sampled_grid['suitability_score'] > max_score * 0.66]) if max_score > 0 else 0
-        
-#         legend_html = f'''
-#         <div style="position: fixed; top: 10px; right: 10px; width: 320px; height: 280px; 
-#                     background-color: white; border:2px solid grey; z-index:9999; 
-#                     font-size:12px; padding: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
-#         <h4 style="margin-top:0; color:#2E8B57;">🧭 UK Low-Impact Exploration Planner</h4>
-#         <p style="margin:5px 0; font-size:10px;"><b>Analysis Area:</b> UK Continental Shelf</p>
-        
-#         <p style="margin:8px 0; font-weight:bold;">Grid Cell Suitability:</p>
-#         <p style="margin:2px 0;"><span style="background-color:#006400; color:white; padding:2px 6px;">⬛</span> High Suitability ({high_count} cells)</p>
-#         <p style="margin:2px 0;"><span style="background-color:#FF8C00; color:white; padding:2px 6px;">⬛</span> Medium Suitability ({med_count} cells)</p>
-#         <p style="margin:2px 0;"><span style="background-color:#FF0000; color:white; padding:2px 6px;">⬛</span> Low Suitability ({low_count} cells)</p>
-        
-#         <p style="margin:8px 0; font-weight:bold;">Features:</p>
-#         <p style="margin:2px 0;"><span style="background-color:#00FF00; color:black; padding:2px 6px;">⬛</span> 🎯 TOP CANDIDATES ({len(top_sites)})</p>
-#         <p style="margin:2px 0;">⭐ Exploration Sites</p>
-#         <p style="margin:2px 0;">🔵 Existing Wells</p>
-#         <p style="margin:2px 0;">🏙️ UK Cities (Reference)</p>
-        
-#         <p style="margin:8px 0 0 0; font-size:10px; font-style:italic;">
-#         Showing {len(sampled_grid)}/{len(all_grid)} grid cells<br>
-#         Green offshore areas = Best for exploration
-#         </p>
-#         </div>
-#         '''
-#         m.get_root().html.add_child(folium.Element(legend_html))
-        
-#         # Add layer control
-#         folium.LayerControl().add_to(m)
-        
-#         map_html = m.get_root().render()
-#         map_size_mb = len(map_html) / (1024 * 1024)
-#         print(f"DEBUG: Generated UK-centered map HTML size: {map_size_mb:.2f} MB")
-        
-#         return map_html
+#         return json.dumps(result)
         
 #     except Exception as e:
-#         print(f"ERROR in UK-centered map creation: {e}")
-#         import traceback
-#         traceback.print_exc()
-#         return f'<div style="height: 400px; color: red; text-align: center; padding-top: 150px;">Map creation failed: {str(e)}</div>'
+#         error_result = {
+#             'error': f'Exploration planning failed: {str(e)}',
+#             'report': f'Unable to complete exploration planning due to: {str(e)}'
+#         }
+#         return json.dumps(error_result)
 
 
 def create_exploration_map(top_sites: gpd.GeoDataFrame, 
