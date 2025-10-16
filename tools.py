@@ -2280,55 +2280,53 @@ def create_exploration_map(top_sites: gpd.GeoDataFrame,
         weights_display = ", ".join([f"{k}: {v:.0%}" for k, v in weights.items()])
         
         legend_html = f'''
-        <div style="position: fixed; top: 10px; right: 10px; width: 320px; height: 350px; 
-                    background-color: rgba(255,255,255,0.96); border:2px solid #333; z-index:9999; 
-                    font-size:11px; padding: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.4);
-                    border-radius: 6px; font-family: Arial, sans-serif;">
-        <h4 style="margin-top:0; color:#2E8B57; text-align:center; font-size:14px; margin-bottom:10px;">
-        UK Low-Impact Exploration Planner</h4>
-        
-        <p style="margin:6px 0; font-weight:bold; font-size:12px;">Suitability Distribution:</p>
-        <div style="margin:3px 0;">
-            <span style="display:inline-block; width:10px; height:10px; background-color:#006400; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
-            <span style="font-size:10px;">Excellent ({category_counts.get('excellent', 0)} sites)</span>
+        <div style="position: fixed; top: 5px; right: 10px; width: 200px; height: 180px; 
+                    background-color: rgba(255,255,255,0.95); border:1px solid #333; z-index:9999; 
+                    font-size:10px; padding: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                    border-radius: 4px; font-family: Arial, sans-serif;">
+        <h4 style="margin:0 0 6px 0; color:#2E8B57; text-align:center; font-size:12px;">UK Exploration Planner</h4>
+
+        <div style="margin:4px 0;">
+        <div style="display:flex; align-items:center; margin:2px 0;">
+            <span style="width:8px; height:8px; background:#006400; border:1px solid black; margin-right:4px; display:inline-block;"></span>
+            <span style="font-size:9px;">Excellent ({category_counts.get('excellent', 0)})</span>
         </div>
-        <div style="margin:3px 0;">
-            <span style="display:inline-block; width:9px; height:9px; background-color:#32CD32; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
-            <span style="font-size:10px;">Very Good ({category_counts.get('very_good', 0)} sites)</span>
+        <div style="display:flex; align-items:center; margin:2px 0;">
+            <span style="width:7px; height:7px; background:#32CD32; border:1px solid black; margin-right:4px; display:inline-block;"></span>
+            <span style="font-size:9px;">Very Good ({category_counts.get('very_good', 0)})</span>
         </div>
-        <div style="margin:3px 0;">
-            <span style="display:inline-block; width:8px; height:8px; background-color:#FFD700; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
-            <span style="font-size:10px;">Moderate ({category_counts.get('moderate', 0)} sites)</span>
+        <div style="display:flex; align-items:center; margin:2px 0;">
+            <span style="width:6px; height:6px; background:#FFD700; border:1px solid black; margin-right:4px; display:inline-block;"></span>
+            <span style="font-size:9px;">Moderate ({category_counts.get('moderate', 0)})</span>
         </div>
-        <div style="margin:3px 0;">
-            <span style="display:inline-block; width:6px; height:6px; background-color:#FF8C00; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
-            <span style="font-size:10px;">Poor ({category_counts.get('poor', 0)} sites)</span>
+        <div style="display:flex; align-items:center; margin:2px 0;">
+            <span style="width:5px; height:5px; background:#FF8C00; border:1px solid black; margin-right:4px; display:inline-block;"></span>
+            <span style="font-size:9px;">Poor ({category_counts.get('poor', 0)})</span>
         </div>
-        <div style="margin:3px 0;">
-            <span style="display:inline-block; width:6px; height:6px; background-color:#FF0000; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
-            <span style="font-size:10px;">Very Poor ({category_counts.get('very_poor', 0)} sites)</span>
+        <div style="display:flex; align-items:center; margin:2px 0;">
+            <span style="width:5px; height:5px; background:#FF0000; border:1px solid black; margin-right:4px; display:inline-block;"></span>
+            <span style="font-size:9px;">Very Poor ({category_counts.get('very_poor', 0)})</span>
         </div>
-        
-        <p style="margin:10px 0 6px 0; font-weight:bold; font-size:12px;">Key Features:</p>
-        <div style="margin:3px 0;">
-            <span style="display:inline-block; width:12px; height:12px; background-color:darkgreen; border:2px solid gold; border-radius:50%; margin-right:5px;"></span>
-            <span style="font-size:10px;">⭐ Top Exploration Sites ({len(top_sites)})</span>
         </div>
-        <div style="margin:3px 0;">
-            <span style="display:inline-block; width:6px; height:6px; background-color:white; border:1px solid black; border-radius:50%; margin-right:5px;"></span>
-            <span style="font-size:10px;">🏙️ UK Cities</span>
+
+        <div style="margin:6px 0 4px 0;">
+        <div style="display:flex; align-items:center; margin:1px 0;">
+            <span style="width:10px; height:10px; background:darkgreen; border:2px solid gold; border-radius:50%; margin-right:4px; display:inline-block;"></span>
+            <span style="font-size:9px;">Top Sites ({len(top_sites)})</span>
         </div>
-        <div style="margin:3px 0;">
-            <span style="display:inline-block; width:4px; height:4px; background-color:lightblue; border:1px solid navy; border-radius:50%; margin-right:5px;"></span>
-            <span style="font-size:10px;">⚙️ Existing Wells</span>
+        <div style="display:flex; align-items:center; margin:1px 0;">
+            <span style="width:5px; height:5px; background:white; border:1px solid black; border-radius:50%; margin-right:4px; display:inline-block;"></span>
+            <span style="font-size:9px;">UK Cities</span>
         </div>
-        
-        <hr style="margin: 8px 0;">
-        <p style="margin:3px 0; font-size:9px;"><b>Analysis:</b> {total_markers} representative points from {len(all_grid)} total</p>
-        <p style="margin:3px 0; font-size:9px;"><b>MCDA Weights:</b> {weights_display}</p>
-        <p style="margin:6px 0 0 0; font-size:9px; font-style:italic; color:#666;">
-        Shows stratified sample including all suitability levels
-        </p>
+        <div style="display:flex; align-items:center; margin:1px 0;">
+            <span style="width:4px; height:4px; background:lightblue; border:1px solid navy; border-radius:50%; margin-right:4px; display:inline-block;"></span>
+            <span style="font-size:9px;">Wells</span>
+        </div>
+        </div>
+
+        <div style="margin:4px 0 0 0; font-size:8px; color:#666; text-align:center;">
+        {total_markers} points | {weights_display}
+        </div>
         </div>
         '''
         m.get_root().html.add_child(folium.Element(legend_html))
