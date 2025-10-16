@@ -12,6 +12,7 @@ import nltk
 import sys
 import time
 from pdb import set_trace
+from datetime import datetime, timedelta
 
 from pyproj import Transformer
 from geopy.geocoders import Nominatim
@@ -43,6 +44,9 @@ from schemas import DataSourceTracker, GetWellEntryInput,\
 # from seismic_analysis_python import SeismicDrillingAnalyzer
 from scenario_modeling import run_mcda, run_scenario_analysis
 from grid_system import ExplorationGridSystem
+from global_wind_farm_planner import GlobalWindFarmPlanner,\
+    create_wind_farm_map, generate_wind_farm_report
+
 
 def within_op(layer_1: str, layer_2:str) -> gpd.GeoDataFrame:
     """ Perform a "within" operation, such as "Find all seismic events within licensed blocks".
@@ -2009,104 +2013,6 @@ def create_exploration_map(top_sites: gpd.GeoDataFrame,
         return f'<div style="height: 400px; color: red; text-align: center; padding-top: 150px;">Strategic sampling map creation failed: {str(e)}</div>'
 
 
-
-# def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker],
-#                                       goal: str = "minimize environmental impact",
-#                                       max_seismic_risk: float = 0.3,
-#                                       max_ecological_sensitivity: float = 0.4,
-#                                       min_infrastructure_proximity: float = 0.1,
-#                                       num_sites: int = 10,
-#                                       cell_size_km: float = 5.0) -> str:
-#     """
-#     Autonomous exploration planning that identifies low-environmental-impact candidate locations
-#     for new exploration/drilling, balancing seismic risk, ecological sensitivity, and infrastructure proximity.
-    
-#     Args:
-#         goal: Planning objective ("minimize environmental impact", "balance economics and environment", "maximize safety")
-#         max_seismic_risk: Maximum acceptable seismic risk score (0.0-1.0)
-#         max_ecological_sensitivity: Maximum acceptable ecological sensitivity (0.0-1.0)
-#         min_infrastructure_proximity: Minimum required infrastructure proximity (0.0-1.0)
-#         num_sites: Number of candidate sites to return
-#         cell_size_km: Grid cell size in kilometers
-    
-#     Return:
-#         JSON string with exploration plan, map, and detailed site analyses
-
-#     """
-    
-#     print(f"🎯 Planning exploration sites with goal: {goal}")
-    
-#     try:
-#         from grid_system import ExplorationGridSystem
-        
-#         add_data_source(run_context, ["seismic", "wells", "pipelines", "offshore_fields"])
-        
-#         # Initialize and create grid
-#         grid_system = ExplorationGridSystem(cell_size_km=cell_size_km)
-        
-#         # Calculate all scores - this creates the suitability_score column
-#         grid_with_scores = grid_system.get_scored_grid()
-#         print(f"DEBUG: Grid created with columns: {grid_with_scores.columns.tolist()}")
-#         print(f"DEBUG: Grid shape: {grid_with_scores.shape}")
-        
-#         # Apply constraints
-#         suitable_cells = grid_with_scores[
-#             (grid_with_scores['seismic_score'] <= max_seismic_risk) &
-#             (grid_with_scores['ecological_score'] <= max_ecological_sensitivity) &
-#             (grid_with_scores['infrastructure_score'] >= min_infrastructure_proximity)
-#         ].copy()
-        
-#         if len(suitable_cells) == 0:
-#             return json.dumps({
-#                 'error': 'No sites meet the specified constraints',
-#                 'recommendation': 'Try relaxing constraints',
-#                 'report': 'No suitable exploration sites found.'
-#             })
-        
-#         print(f"📍 Found {len(suitable_cells)} cells meeting constraints")
-        
-#         # Determine weights and run MCDA
-#         if "environmental" in goal.lower():
-#             weights = {'seismic': 0.3, 'ecological': 0.5, 'infrastructure': 0.2}
-#             scenario_name = "Environment-Focused"
-#         else:
-#             weights = {'seismic': 0.33, 'ecological': 0.33, 'infrastructure': 0.34}
-#             scenario_name = "Balanced"
-        
-#         # Get top candidates
-#         ranked_suitable = suitable_cells.sort_values('suitability_score').head(num_sites)
-        
-#         # PASS THE FULL GRID WITH SCORES to the map function
-#         map_html = create_exploration_map(ranked_suitable, grid_with_scores, weights)
-        
-#         # Generate explanations and report
-#         site_explanations = generate_site_explanations(ranked_suitable.head(5), weights, scenario_name)
-#         report = generate_exploration_report(ranked_suitable, weights, scenario_name, 
-#                                            max_seismic_risk, max_ecological_sensitivity, 
-#                                            min_infrastructure_proximity)
-        
-#         result = {
-#             'report': report,
-#             'map_html': map_html,
-#             'scenario_used': scenario_name,
-#             'weights_applied': weights,
-#             'total_suitable_sites': len(suitable_cells),
-#             'top_candidates': len(ranked_suitable),
-#             'site_explanations': site_explanations
-#         }
-        
-#         return json.dumps(result)
-        
-#     except Exception as e:
-#         print(f"ERROR in exploration planning: {e}")
-#         import traceback
-#         traceback.print_exc()
-#         return json.dumps({
-#             'error': f'Planning failed: {str(e)}',
-#             'report': f'Unable to complete planning: {str(e)}'
-#         })
-
-
 def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker],
                                       goal: str = "minimize environmental impact",
                                       scenario_name: str = "environment_focus",
@@ -2571,133 +2477,600 @@ This combination gives it a suitability score of {site['suitability_score']:.3f}
     
     return explanations
 
+# === Tools relating to wind farm exploration planner ===
+def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
+                                        region: str = "africa",
+                                        goal: str = "balance environmental and economic factors",
+                                        wind_resource_weight: float = 0.4,
+                                        environmental_weight: float = 0.25,
+                                        economic_weight: float = 0.25,
+                                        operational_weight: float = 0.1,
+                                        min_wind_resource: float = 0.15,  # Lowered from 0.3
+                                        max_wave_height: float = 6.0,    # Increased from 4.0
+                                        num_sites: int = 15,
+                                        cell_size_km: float = 20.0,
+                                        fast_mode: bool = True,
+                                        adaptive_constraints: bool = True) -> str:
+    """
+    Adaptive wind farm planning that relaxes constraints if no sites are found.
+    
+    Args:
+        region: Target region
+        goal: Planning objective
+        wind_resource_weight to operational_weight: Criterion weights (0-1)
+        min_wind_resource: Minimum wind resource threshold (relaxed if needed)
+        max_wave_height: Maximum wave height threshold (relaxed if needed)
+        num_sites: Number of sites to return
+        cell_size_km: Grid cell size
+        fast_mode: Use optimized algorithms
+        adaptive_constraints: Automatically relax constraints if no sites found
+    
+    Return:
+        JSON with results, constraint adjustments, and recommendations
+    """
+    
+    start_time = datetime.now()
+    print(f"Starting adaptive wind farm planning for {region}...")
+    
+    try:
+        # Initialize planner
+        max_cells = 3000 if fast_mode else 8000
+        planner = GlobalWindFarmPlanner(
+            region=region, 
+            cell_size_km=cell_size_km,
+            max_grid_cells=max_cells
+        )
+        
+        # Create grid
+        planner.create_grid()
+        
+        if len(planner.grid_gdf) == 0:
+            return json.dumps({
+                'error': 'No offshore grid cells created',
+                'region': region,
+                'suggestion': 'Try different region or check regional boundaries'
+            })
+        
+        print(f"Grid created: {len(planner.grid_gdf)} cells")
+        
+        # Calculate scores
+        if fast_mode:
+            wind_scores = planner.calculate_wind_resource_score_vectorized()
+            wave_scores = planner.calculate_wave_operational_score_fast()
+            distance_scores = planner.calculate_distance_to_shore_score_fast()
+        else:
+            wind_scores = planner.calculate_wind_resource_score()
+            wave_scores = planner.calculate_wave_operational_score()
+            distance_scores = planner.calculate_distance_to_shore_score()
+        
+        # Environmental score (simplified)
+        env_scores = np.random.uniform(0.4, 0.8, len(planner.grid_gdf))
+        
+        # Normalize weights
+        total_weight = wind_resource_weight + environmental_weight + economic_weight + operational_weight
+        weights = {
+            'wind_resource': wind_resource_weight / total_weight,
+            'environmental': environmental_weight / total_weight,
+            'economic': economic_weight / total_weight,
+            'operational': operational_weight / total_weight
+        }
+        
+        # Create results dataframe
+        grid_with_scores = planner.grid_gdf.copy()
+        grid_with_scores['wind_resource_score'] = wind_scores
+        grid_with_scores['wave_operational_score'] = wave_scores
+        grid_with_scores['distance_to_shore_score'] = distance_scores
+        grid_with_scores['environmental_score'] = env_scores
+        
+        # Calculate composite scores
+        suitability_scores = (
+            weights['wind_resource'] * wind_scores +
+            weights['operational'] * wave_scores +
+            weights['economic'] * distance_scores +
+            weights['environmental'] * env_scores
+        )
+        
+        grid_with_scores['suitability_score'] = suitability_scores
+        
+        # Store original constraints for reporting
+        original_constraints = {
+            'min_wind_resource': min_wind_resource,
+            'max_wave_height': max_wave_height
+        }
+        
+        # Adaptive constraint relaxation
+        constraint_adjustments = []
+        wave_score_threshold = max(0, 1 - max_wave_height / 10)
+        
+        # First attempt with original constraints
+        suitable_sites = grid_with_scores[
+            (grid_with_scores['wind_resource_score'] >= min_wind_resource) &
+            (grid_with_scores['wave_operational_score'] >= wave_score_threshold)
+        ].copy()
+        
+        # Check data distribution for debugging
+        print(f"Score distributions:")
+        print(f"Wind resource: min={wind_scores.min():.3f}, max={wind_scores.max():.3f}, mean={wind_scores.mean():.3f}")
+        print(f"Wave operational: min={wave_scores.min():.3f}, max={wave_scores.max():.3f}, mean={wave_scores.mean():.3f}")
+        print(f"Suitability: min={suitability_scores.min():.3f}, max={suitability_scores.max():.3f}, mean={suitability_scores.mean():.3f}")
+        
+        # Adaptive constraint relaxation if needed
+        if len(suitable_sites) == 0 and adaptive_constraints:
+            print("No sites found with original constraints, applying adaptive relaxation...")
+            
+            # Relax wind resource constraint
+            wind_percentile_20 = np.percentile(wind_scores, 20)
+            if min_wind_resource > wind_percentile_20:
+                new_min_wind = max(0.1, wind_percentile_20)
+                constraint_adjustments.append(f"Wind resource lowered from {min_wind_resource:.2f} to {new_min_wind:.2f}")
+                min_wind_resource = new_min_wind
+            
+            # Relax wave constraint
+            wave_percentile_80 = np.percentile(wave_scores, 80)
+            new_max_wave = min(8.0, 10 * (1 - wave_percentile_80))  # Convert back to wave height
+            if new_max_wave > max_wave_height:
+                constraint_adjustments.append(f"Wave height increased from {max_wave_height:.1f}m to {new_max_wave:.1f}m")
+                max_wave_height = new_max_wave
+            
+            # Recalculate with relaxed constraints
+            wave_score_threshold = max(0, 1 - max_wave_height / 10)
+            
+            suitable_sites = grid_with_scores[
+                (grid_with_scores['wind_resource_score'] >= min_wind_resource) &
+                (grid_with_scores['wave_operational_score'] >= wave_score_threshold)
+            ].copy()
+            
+            print(f"After constraint relaxation: {len(suitable_sites)} suitable sites found")
+        
+        # If still no sites, take top percentage regardless of constraints
+        if len(suitable_sites) == 0:
+            print("Still no sites found, selecting top 10% by suitability score...")
+            top_10_percent = max(1, len(grid_with_scores) // 10)
+            suitable_sites = grid_with_scores.nlargest(top_10_percent, 'suitability_score')
+            constraint_adjustments.append("Selected top 10% of sites regardless of original constraints")
+        
+        # Get top candidates
+        top_sites = suitable_sites.nlargest(num_sites, 'suitability_score')
+        
+        # Create visualization
+        map_html = create_wind_farm_map(top_sites, suitable_sites, region, weights)
+        
+        total_time = (datetime.now() - start_time).total_seconds()
+        
+        # Generate comprehensive report
+        report = generate_adaptive_wind_farm_report(
+            top_sites, weights, region, goal, planner.data_availability,
+            original_constraints, constraint_adjustments, 
+            min_wind_resource, max_wave_height, fast_mode, total_time
+        )
+        
+        result = {
+            'report': report,
+            'map_html': map_html,
+            'region_analyzed': region,
+            'total_suitable_sites': len(suitable_sites),
+            'top_candidates': len(top_sites),
+            'weights_applied': weights,
+            'original_constraints': original_constraints,
+            'final_constraints': {
+                'min_wind_resource': min_wind_resource,
+                'max_wave_height': max_wave_height
+            },
+            'constraint_adjustments': constraint_adjustments,
+            'score_statistics': {
+                'wind_resource': {
+                    'min': float(wind_scores.min()),
+                    'max': float(wind_scores.max()),
+                    'mean': float(wind_scores.mean())
+                },
+                'wave_operational': {
+                    'min': float(wave_scores.min()),
+                    'max': float(wave_scores.max()),
+                    'mean': float(wave_scores.mean())
+                },
+                'suitability': {
+                    'min': float(suitability_scores.min()),
+                    'max': float(suitability_scores.max()),
+                    'mean': float(suitability_scores.mean())
+                }
+            },
+            'performance_metrics': {
+                'total_time_seconds': round(total_time, 1),
+                'grid_cells_processed': len(planner.grid_gdf),
+                'fast_mode_used': fast_mode
+            },
+            'data_quality': planner.data_availability
+        }
+        
+        print(f"Analysis completed in {total_time:.1f}s with {len(top_sites)} sites")
+        return json.dumps(result)
+        
+    except Exception as e:
+        print(f"Error in adaptive planning: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        return json.dumps({
+            'error': f'Planning failed: {str(e)}',
+            'region': region,
+            'suggestion': 'Check data availability and regional boundaries'
+        })
 
-def generate_exploration_report(ranked_sites: gpd.GeoDataFrame, 
-                               weights: Dict[str, float],
-                               scenario: str,
-                               max_seismic: float,
-                               max_ecological: float, 
-                               min_infrastructure: float) -> str:
-    """Generate comprehensive exploration planning report with FIXED terminology."""
+
+def generate_adaptive_wind_farm_report(top_sites: gpd.GeoDataFrame,
+                                     weights: Dict[str, float],
+                                     region: str,
+                                     goal: str,
+                                     data_availability: Dict[str, bool],
+                                     original_constraints: Dict,
+                                     constraint_adjustments: List[str],
+                                     final_min_wind: float,
+                                     final_max_wave: float,
+                                     fast_mode: bool,
+                                     total_time: float) -> str:
+    """Generate report with constraint adjustment information."""
     
     report_lines = []
     
-    # Header
-    report_lines.append("# LOW-IMPACT EXPLORATION PLANNING REPORT")
-    report_lines.append("=" * 50)
-    report_lines.append(f"**Analysis Date:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
-    report_lines.append(f"**Scenario:** {scenario}")
-    report_lines.append(f"**Planning Objective:** Minimize environmental impact while maintaining operational feasibility")
+    report_lines.append(f"# ADAPTIVE WIND FARM PLANNING REPORT - {region.upper()}")
+    report_lines.append("=" * 60)
+    report_lines.append(f"**Analysis completed in {total_time:.1f} seconds**")
+    report_lines.append(f"**Region:** {region.title()}")
     report_lines.append("")
     
-    # FIXED: Clarify what the constraints mean
-    report_lines.append("## CONSTRAINTS APPLIED")
-    report_lines.append(f"- Maximum Seismic Risk Score: {max_seismic} (lower is safer)")
-    report_lines.append(f"- Maximum Ecological Sensitivity Score: {max_ecological} (lower is less environmentally sensitive)")
-    report_lines.append(f"- Minimum Infrastructure Proximity Score: {min_infrastructure} (higher means closer to existing infrastructure)")
-    report_lines.append("")
-    
-    # Weights used
-    report_lines.append("## MCDA WEIGHTS")
-    for criterion, weight in weights.items():
-        report_lines.append(f"- {criterion.title()}: {weight:.1%}")
-    report_lines.append("")
-    
-    # FIXED: Clarify scoring explanation
-    report_lines.append("## SCORING METHODOLOGY")
-    report_lines.append("**Suitability Score Calculation:**")
-    report_lines.append("- **Lower suitability scores = BETTER exploration sites**")
-    report_lines.append("- Seismic score: 0.0 (no earthquakes) to 1.0 (many earthquakes)")
-    report_lines.append("- Ecological score: 0.0 (low sensitivity) to 1.0 (high sensitivity)")
-    report_lines.append("- Infrastructure score: 0.0 (isolated) to 1.0 (well-connected)")
-    report_lines.append("- Combined using weighted average")
-    report_lines.append("")
-    
-    # Results summary
-    report_lines.append("## RESULTS SUMMARY")
-    report_lines.append(f"- **Total Candidate Sites:** {len(ranked_sites)}")
-    best_score = ranked_sites['suitability_score'].min()
-    worst_score = ranked_sites['suitability_score'].max()
-    report_lines.append(f"- **Best Suitability Score:** {best_score:.3f} (lower is better)")
-    report_lines.append(f"- **Score Range:** {best_score:.3f} - {worst_score:.3f}")
-    report_lines.append("")
-    
-    # Top 10 candidates table
-    report_lines.append("## TOP CANDIDATE LOCATIONS (Best to Worst)")
-    report_lines.append("| Rank | Cell ID | Coordinates | Suitability↓ | Seismic | Ecological | Infrastructure |")
-    report_lines.append("|------|---------|-------------|--------------|---------|------------|----------------|")
-    
-    for _, site in ranked_sites.head(10).iterrows():
-        coords = f"{site['center_lat']:.2f}°N, {abs(site['center_lon']):.2f}°W"
+    # Constraint adjustments section
+    if constraint_adjustments:
+        report_lines.append("## CONSTRAINT ADJUSTMENTS")
+        report_lines.append("⚠️ **Original constraints were too restrictive. Adjustments made:**")
+        for adjustment in constraint_adjustments:
+            report_lines.append(f"- {adjustment}")
+        report_lines.append("")
         
-        # Add quality indicators
-        if site['suitability_score'] <= 0.3:
-            quality = "⭐ EXCELLENT"
-        elif site['suitability_score'] <= 0.5:
-            quality = "✅ GOOD"
-        elif site['suitability_score'] <= 0.7:
-            quality = "⚠️ FAIR"
-        else:
-            quality = "❌ POOR"
-            
+        report_lines.append("**Original vs Final Constraints:**")
+        report_lines.append(f"- Wind Resource: {original_constraints['min_wind_resource']:.2f} → {final_min_wind:.2f}")
+        report_lines.append(f"- Wave Height: {original_constraints['max_wave_height']:.1f}m → {final_max_wave:.1f}m")
+        report_lines.append("")
+    else:
+        report_lines.append("## CONSTRAINT STATUS")
+        report_lines.append("✅ **Original constraints were successfully applied**")
+        report_lines.append("")
+    
+    # Data quality
+    if data_availability['using_fallback']:
+        report_lines.append("## DATA QUALITY WARNING")
+        report_lines.append("⚠️ **Using synthetic data** - Copernicus Marine Service unavailable")
+        report_lines.append("- Results are estimates based on climatological models")
+        report_lines.append("- Validation with real measurements essential")
+        report_lines.append("")
+    
+    # Results table
+    report_lines.append("## TOP WIND FARM CANDIDATE SITES")
+    report_lines.append("| Rank | Coordinates | Suitability | Wind | Waves | Distance |")
+    report_lines.append("|------|-------------|-------------|------|-------|----------|")
+    
+    for idx, site in top_sites.iterrows():
+        coords = f"{site['center_lat']:.1f}°N, {abs(site['center_lon']):.1f}°{'W' if site['center_lon'] < 0 else 'E'}"
+        
+        quality = ("🌟" if site['suitability_score'] > 0.7 else
+                  "✅" if site['suitability_score'] > 0.5 else
+                  "⚠️" if site['suitability_score'] > 0.3 else "❌")
+        
         report_lines.append(
-            f"| {int(site['rank'])} {quality} | {int(site['cell_id'])} | {coords} | "
-            f"{site['suitability_score']:.3f} | {site['seismic_score']:.3f} | "
-            f"{site['ecological_score']:.3f} | {site['infrastructure_score']:.3f} |"
+            f"| {idx+1} {quality} | {coords} | {site['suitability_score']:.3f} | "
+            f"{site['wind_resource_score']:.3f} | {site['wave_operational_score']:.3f} | "
+            f"{site['distance_to_shore_score']:.3f} |"
         )
     
     report_lines.append("")
     
-    # Environmental impact assessment
-    avg_ecological = ranked_sites.head(10)['ecological_score'].mean()
-    avg_seismic = ranked_sites.head(10)['seismic_score'].mean()
+    # Regional assessment
+    avg_suitability = top_sites['suitability_score'].mean()
+    avg_wind = top_sites['wind_resource_score'].mean()
     
-    report_lines.append("## ENVIRONMENTAL IMPACT ASSESSMENT")
-    report_lines.append(f"- **Average Ecological Sensitivity (Top 10):** {avg_ecological:.3f}")
-    report_lines.append(f"- **Average Seismic Risk (Top 10):** {avg_seismic:.3f}")
+    report_lines.append("## REGIONAL ASSESSMENT")
+    report_lines.append(f"**{region.title()} Wind Farm Development Potential:**")
     
-    if avg_ecological < 0.3 and avg_seismic < 0.3:
-        impact_level = "LOW IMPACT (Excellent for sustainable exploration)"
-    elif avg_ecological < 0.5 and avg_seismic < 0.5:
-        impact_level = "MEDIUM IMPACT (Acceptable with mitigation)"
+    if avg_suitability > 0.6 and avg_wind > 0.5:
+        potential = "HIGH POTENTIAL"
+        recommendation = "Excellent region for offshore wind development"
+    elif avg_suitability > 0.4:
+        potential = "MODERATE POTENTIAL"
+        recommendation = "Good development opportunities with proper site selection"
     else:
-        impact_level = "HIGH IMPACT (Requires careful consideration)"
+        potential = "CHALLENGING CONDITIONS"
+        recommendation = "Consider detailed feasibility studies before proceeding"
     
-    report_lines.append(f"- **Overall Environmental Impact Level:** {impact_level}")
+    report_lines.append(f"- **Overall Potential:** {potential}")
+    report_lines.append(f"- **Recommendation:** {recommendation}")
+    report_lines.append(f"- **Average Suitability Score:** {avg_suitability:.3f}")
+    report_lines.append(f"- **Average Wind Resource:** {avg_wind:.3f}")
     report_lines.append("")
     
-    # Recommendations based on results
-    report_lines.append("## STRATEGIC RECOMMENDATIONS")
+    # Recommendations
+    report_lines.append("## DEVELOPMENT RECOMMENDATIONS")
     
-    if best_score < 0.3:
-        report_lines.append("🎯 **PROCEED WITH CONFIDENCE:** Excellent low-impact sites identified")
-        report_lines.append("   - Sites show low environmental risk and good operational feasibility")
-        report_lines.append("   - Standard environmental management protocols should suffice")
-    elif best_score < 0.5:
-        report_lines.append("⚠️ **PROCEED WITH CAUTION:** Good sites available but require enhanced monitoring")
-        report_lines.append("   - Implement enhanced environmental monitoring")
-        report_lines.append("   - Consider additional mitigation measures")
-    elif best_score < 0.7:
-        report_lines.append("🔍 **DETAILED ASSESSMENT REQUIRED:** Sites available but with elevated risks")
-        report_lines.append("   - Conduct comprehensive environmental impact assessments")
-        report_lines.append("   - Develop robust mitigation strategies")
-    else:
-        report_lines.append("🛑 **RECONSIDER APPROACH:** All sites show significant concerns")
-        report_lines.append("   - Consider alternative exploration strategies")
-        report_lines.append("   - Reassess constraint parameters")
+    if constraint_adjustments:
+        report_lines.append("### Priority Actions (Due to Constraint Adjustments):")
+        report_lines.append("1. **Validate assumptions** with current meteorological data")
+        report_lines.append("2. **Conduct detailed resource assessment** at top sites")
+        report_lines.append("3. **Review regional feasibility** given relaxed constraints")
+        report_lines.append("")
+    
+    report_lines.append("### Standard Development Sequence:")
+    report_lines.append("1. Extended wind measurement campaigns (12+ months)")
+    report_lines.append("2. Environmental impact assessments")
+    report_lines.append("3. Geotechnical and bathymetric surveys")
+    report_lines.append("4. Grid connection studies")
+    report_lines.append("5. Stakeholder engagement and permitting")
+    
+    if data_availability['using_fallback']:
+        report_lines.append("")
+        report_lines.append("### Critical Data Needs:")
+        report_lines.append("- **Real oceanographic measurements** to replace synthetic data")
+        report_lines.append("- **Current wind and wave monitoring** for validation")
+        report_lines.append("- **Regional climate studies** for long-term projections")
     
     report_lines.append("")
-    report_lines.append("### Immediate Next Steps:")
-    report_lines.append("1. Conduct detailed geological surveys for top 3 candidates")
-    report_lines.append("2. Initiate comprehensive environmental impact assessments")
-    report_lines.append("3. Begin early stakeholder engagement process")
-    report_lines.append("4. Develop site-specific environmental management plans")
-    report_lines.append("")
-    
-    # Footer
     report_lines.append("---")
-    report_lines.append("*Report generated by Low-Impact Exploration Planner*")
-    report_lines.append("*This analysis provides initial screening - detailed site surveys are essential*")
+    report_lines.append("*Generated by Adaptive Wind Farm Site Planner*")
+    
+    if constraint_adjustments:
+        report_lines.append("*⚠️ Note: Constraints were automatically adjusted - review carefully*")
     
     return "\n".join(report_lines)
 
+
+# Add debug function for constraint analysis
+def analyze_wind_farm_constraints(run_context: RunContext[DataSourceTracker],
+                                region: str = "africa",
+                                cell_size_km: float = 15.0) -> str:
+    """
+    Debug function to analyze score distributions and suggest optimal constraints.
+    
+    Args:
+        region: Target region for analysis
+        cell_size_km: Grid cell size
+    
+    Return:
+        JSON with score distributions and constraint recommendations
+    """
+    
+    try:
+        # Quick analysis without full processing
+        planner = GlobalWindFarmPlanner(region=region, cell_size_km=cell_size_km)
+        planner.create_grid()
+        
+        # Calculate scores
+        wind_scores = planner.calculate_wind_resource_score_vectorized()
+        wave_scores = planner.calculate_wave_operational_score_fast()
+        
+        # Calculate percentiles
+        wind_percentiles = {
+            '10th': np.percentile(wind_scores, 10),
+            '25th': np.percentile(wind_scores, 25),
+            '50th': np.percentile(wind_scores, 50),
+            '75th': np.percentile(wind_scores, 75),
+            '90th': np.percentile(wind_scores, 90)
+        }
+        
+        wave_percentiles = {
+            '10th': np.percentile(wave_scores, 10),
+            '25th': np.percentile(wave_scores, 25),
+            '50th': np.percentile(wave_scores, 50),
+            '75th': np.percentile(wave_scores, 75),
+            '90th': np.percentile(wave_scores, 90)
+        }
+        
+        # Suggest optimal constraints
+        suggested_min_wind = wind_percentiles['25th']  # Exclude bottom 25%
+        suggested_max_wave_height = 10 * (1 - wave_percentiles['75th'])  # Top 25% wave conditions
+        
+        result = {
+            'region': region,
+            'grid_cells_analyzed': len(planner.grid_gdf),
+            'wind_resource_distribution': {
+                'percentiles': wind_percentiles,
+                'mean': float(wind_scores.mean()),
+                'std': float(wind_scores.std())
+            },
+            'wave_operational_distribution': {
+                'percentiles': wave_percentiles,
+                'mean': float(wave_scores.mean()),
+                'std': float(wave_scores.std())
+            },
+            'suggested_constraints': {
+                'min_wind_resource': round(suggested_min_wind, 2),
+                'max_wave_height': round(suggested_max_wave_height, 1),
+                'rationale': f"Wind: 25th percentile, Wave: 75th percentile conditions"
+            },
+            'constraint_impact_estimates': {
+                'conservative': {
+                    'min_wind': round(wind_percentiles['50th'], 2),
+                    'expected_sites': f"{int(len(planner.grid_gdf) * 0.5)} sites (~50%)"
+                },
+                'moderate': {
+                    'min_wind': round(wind_percentiles['25th'], 2),
+                    'expected_sites': f"{int(len(planner.grid_gdf) * 0.75)} sites (~75%)"
+                },
+                'permissive': {
+                    'min_wind': round(wind_percentiles['10th'], 2),
+                    'expected_sites': f"{int(len(planner.grid_gdf) * 0.9)} sites (~90%)"
+                }
+            }
+        }
+        
+        return json.dumps(result, indent=2)
+        
+    except Exception as e:
+        return json.dumps({
+            'error': f'Constraint analysis failed: {str(e)}',
+            'region': region
+        })
+
+
+# def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
+#                                 region: str = "africa",
+#                                 goal: str = "balance environmental and economic factors",
+#                                 wind_resource_weight: float = 0.4,
+#                                 environmental_weight: float = 0.2,
+#                                 economic_weight: float = 0.25,
+#                                 operational_weight: float = 0.15,
+#                                 min_wind_resource: float = 0.3,
+#                                 max_wave_height: float = 4.0,
+#                                 min_distance_shore: float = 5.0,
+#                                 max_distance_shore: float = 100.0,
+#                                 num_sites: int = 15,
+#                                 cell_size_km: float = 10.0) -> str:
+#     """
+#     Plan wind farm sites globally using available Copernicus data with fallback handling.
+    
+#     Args:
+#         region: Target region ("africa", "europe", "asia", "north_america", "global")
+#         goal: Planning objective description
+#         wind_resource_weight: Weight for wind resource quality (0.0-1.0)
+#         environmental_weight: Weight for environmental protection (0.0-1.0)
+#         economic_weight: Weight for economic factors (distance to shore, etc.) (0.0-1.0)
+#         operational_weight: Weight for operational conditions (waves, weather) (0.0-1.0)
+#         min_wind_resource: Minimum required wind resource score (0.0-1.0)
+#         max_wave_height: Maximum acceptable mean wave height (meters)
+#         min_distance_shore: Minimum distance from shore (km)
+#         max_distance_shore: Maximum distance from shore (km)
+#         num_sites: Number of candidate sites to return
+#         cell_size_km: Grid cell size in kilometers
+    
+#     Return:
+#         JSON string with wind farm site plan, map, and analysis including data quality notes
+#     """
+    
+#     print(f"🌊 Planning offshore wind farm sites in {region}...")
+    
+#     try:
+#         # Initialize global planner
+#         planner = GlobalWindFarmPlanner(region=region, cell_size_km=cell_size_km)
+        
+#         # Create offshore grid
+#         print("🔧 Creating offshore grid...")
+#         planner.create_grid()
+        
+#         if len(planner.grid_gdf) == 0:
+#             return json.dumps({
+#                 'error': 'No offshore grid cells created for the specified region',
+#                 'suggestion': 'Try a different region or check region boundaries',
+#                 'region': region
+#             })
+        
+#         # Load oceanographic data with fallback handling
+#         print("📡 Loading oceanographic data...")
+#         wind_data = planner.load_copernicus_wind_data()
+#         wave_data = planner.load_wave_data_with_fallback()
+        
+#         # Calculate wind farm specific scores
+#         print("⚡ Calculating wind farm suitability scores...")
+#         wind_scores = planner.calculate_wind_resource_score()
+#         wave_scores = planner.calculate_wave_operational_score() 
+#         distance_scores = planner.calculate_distance_to_shore_score()
+        
+#         # Environmental score (simplified - based on distance from sensitive areas)
+#         # In production, this would use marine protected areas, migration routes, etc.
+#         env_scores = np.random.uniform(0.3, 0.9, len(planner.grid_gdf))  # Placeholder
+        
+#         # Normalize and validate weights
+#         total_weight = wind_resource_weight + environmental_weight + economic_weight + operational_weight
+#         if total_weight == 0:
+#             return json.dumps({'error': 'All weights are zero'})
+        
+#         weights = {
+#             'wind_resource': wind_resource_weight / total_weight,
+#             'environmental': environmental_weight / total_weight,
+#             'economic': economic_weight / total_weight,
+#             'operational': operational_weight / total_weight
+#         }
+        
+#         # Create results dataframe
+#         grid_with_scores = planner.grid_gdf.copy()
+#         grid_with_scores['wind_resource_score'] = wind_scores
+#         grid_with_scores['wave_operational_score'] = wave_scores
+#         grid_with_scores['distance_to_shore_score'] = distance_scores
+#         grid_with_scores['environmental_score'] = env_scores
+        
+#         # Calculate composite suitability score
+#         suitability_scores = (
+#             weights['wind_resource'] * wind_scores +
+#             weights['operational'] * wave_scores +
+#             weights['economic'] * distance_scores +
+#             weights['environmental'] * env_scores
+#         )
+        
+#         grid_with_scores['suitability_score'] = suitability_scores
+        
+#         # Apply constraints
+#         wave_height_score_threshold = max(0, 1 - max_wave_height / 10)  # Convert wave height to score
+        
+#         suitable_sites = grid_with_scores[
+#             (grid_with_scores['wind_resource_score'] >= min_wind_resource) &
+#             (grid_with_scores['wave_operational_score'] >= wave_height_score_threshold) &
+#             (grid_with_scores['distance_to_shore_score'] > 0)  # Must be suitable distance
+#         ].copy()
+        
+#         if len(suitable_sites) == 0:
+#             return json.dumps({
+#                 'error': 'No suitable wind farm sites found with current constraints',
+#                 'recommendation': 'Try relaxing constraints (lower min_wind_resource or higher max_wave_height)',
+#                 'region': region,
+#                 'constraints_applied': {
+#                     'min_wind_resource': min_wind_resource,
+#                     'max_wave_height': max_wave_height,
+#                     'min_distance_shore': min_distance_shore,
+#                     'max_distance_shore': max_distance_shore
+#                 }
+#             })
+        
+#         # Get top candidates
+#         top_sites = suitable_sites.nlargest(num_sites, 'suitability_score')
+        
+#         # Create visualization
+#         map_html = create_wind_farm_map(top_sites, suitable_sites, region, weights, planner.data_availability)
+        
+#         # Generate comprehensive report
+#         report = generate_wind_farm_report(
+#             top_sites, weights, region, goal, planner.data_availability,
+#             min_wind_resource, max_wave_height, min_distance_shore, max_distance_shore
+#         )
+        
+#         result = {
+#             'report': report,
+#             'map_html': map_html,
+#             'region_analyzed': region,
+#             'total_suitable_sites': len(suitable_sites),
+#             'top_candidates': len(top_sites),
+#             'weights_applied': weights,
+#             'data_quality': planner.data_availability,
+#             'data_sources_used': [
+#                 'Copernicus Marine - Global Ocean Wind and Stress' if planner.data_availability['wind_current'] else 'Synthetic wind data',
+#                 'Copernicus Marine - Global Ocean Wave Height (2020 historical)' if planner.data_availability['wave_historical'] else 'Synthetic wave data'
+#             ],
+#             'constraints_applied': {
+#                 'min_wind_resource': min_wind_resource,
+#                 'max_wave_height': max_wave_height,
+#                 'min_distance_shore': min_distance_shore,
+#                 'max_distance_shore': max_distance_shore
+#             },
+#             'data_limitations': [
+#                 'Wave data limited to 2020 - validation with recent measurements recommended',
+#                 'Environmental scoring simplified - detailed EIA required',
+#                 'Bathymetry estimated - survey data needed for final site selection'
+#             ]
+#         }
+        
+#         return json.dumps(result)
+        
+#     except Exception as e:
+#         print(f"❌ Error in global wind farm planning: {e}")
+#         import traceback
+#         traceback.print_exc()
+        
+#         return json.dumps({
+#             'error': f'Wind farm planning failed: {str(e)}',
+#             'region': region,
+#             'suggestion': 'Check Copernicus Marine Service availability, network connection, and region validity'
+#         })

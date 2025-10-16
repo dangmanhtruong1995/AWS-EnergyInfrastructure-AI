@@ -6,6 +6,7 @@ os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
+import re
 
 from pydantic_ai import Agent, RunContext, Tool
 # from pydantic_ai.models.openai import OpenAIChatModel
@@ -28,7 +29,9 @@ from tools import analyse_and_plot_features_and_nearby_infrastructure,\
     assess_infrastructure_proximity,\
     calculate_overall_risk_score,\
     create_risk_assessment_map,\
-    plan_low_impact_exploration_sites
+    plan_low_impact_exploration_sites,\
+    plan_global_wind_farm_sites,\
+    analyze_wind_farm_constraints
     
 
 def show_seismic_dataset(run_context: RunContext):
@@ -104,6 +107,7 @@ dummy_agent = Agent(
             takes_ctx=True, 
             description="Calculate overall risk score from individual risk components and provide recommendations."
         ),
+        # analyze_wind_farm_constraints,
         
         # calculate_overall_risk_score,
         # create_risk_assessment_map,
@@ -186,7 +190,8 @@ def pydantic_bedrock_claude_main(payload):
             analyse_using_mcda_then_plot,
             perform_scenario_analysis_then_plot,
             create_risk_assessment_map,
-            plan_low_impact_exploration_sites,            
+            plan_low_impact_exploration_sites,
+            plan_global_wind_farm_sites,            
             str],  # Functions passed here!
         model_settings=model_settings,
         message_history=conversation_histories[session_id],                   
@@ -197,7 +202,7 @@ def pydantic_bedrock_claude_main(payload):
     tool_calls_log = []
     seen_tool_calls = set()
     
-    import re
+    
     for msg in result.all_messages():
         if hasattr(msg, 'parts'):
             for part in msg.parts:

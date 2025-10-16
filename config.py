@@ -4,24 +4,10 @@ import boto3
 import sys
 import time
 
-# BASE_PATH = "/media/dangmanhtruong/147E655C7E65379E/TRUONG/Proposal_writing/Energy_Infrastructure_AI"
-# BASE_PATH = os.getcwd()
-# HISTORY_FILE = pjoin(BASE_PATH, "code", "chat_history.pickle")
-# DATASETS = {
-#     "seismic": pjoin(BASE_PATH, "datasets", "BGS_earthquake_data", "UK_BGS_earthquate_data.csv"),
-#     "drilling": pjoin(BASE_PATH, "datasets", "UKCS_Daily_Production_Data", "UKCS_well_production_avg_data_processed.csv"),
-#     "licences": pjoin(BASE_PATH, "datasets", "UKCS_OFF_WGS84", "UKCS_Licensed_Blocks_WGS84.shp"),
-#     "pipelines": pjoin(BASE_PATH, "datasets", "UKCS_OFF_WGS84", "UKCS_Pipeline_Linear_WGS84.shp"),
-#     "offshore_fields": pjoin(BASE_PATH, "datasets", "UKCS_OFF_WGS84", "UKCS_Offshore_Fields_WGS84.shp"),
-#     "wells": pjoin(BASE_PATH, "datasets", "UKCS_OFF_WGS84", "UKCS_Wells_WGS84.shp"),
-# }
-# DATASET_LIST = []
-# for dataset_name in DATASETS:
-#     DATASET_LIST.append(dataset_name)
-
 BASE_PATH = "/tmp"
 S3_BUCKET = "oil-gas-datasets-436355390679"
 s3_client = boto3.client('s3')
+
 
 def get_dataset_from_s3(s3_key):
     """Download dataset from S3 to /tmp"""
@@ -116,5 +102,45 @@ SCENARIOS = {
     },
     "environment_focus": {
         "safety": 0.1, "environment": 0.5, "technical": 0.2, "economic": 0.2
+    }
+}
+
+# Wind farm specific scenarios
+WIND_FARM_SCENARIOS = {
+    "wind_resource_focus": {
+        "wind_resource": 0.6, "environmental": 0.2, "economic": 0.1, "wave_conditions": 0.1
+    },
+    "environmental_focus": {
+        "wind_resource": 0.2, "environmental": 0.5, "economic": 0.15, "wave_conditions": 0.15
+    },
+    "economic_focus": {
+        "wind_resource": 0.3, "environmental": 0.1, "economic": 0.4, "wave_conditions": 0.2
+    },
+    "balanced_wind_farm": {
+        "wind_resource": 0.35, "environmental": 0.25, "economic": 0.25, "wave_conditions": 0.15
+    }
+}
+
+# Regional boundaries for global analysis
+GLOBAL_REGIONS = {
+    "africa": {
+        "name": "Africa Continental Shelf",
+        "bounds": {'min_lat': -35.0, 'max_lat': 37.0, 'min_lon': -25.0, 'max_lon': 52.0},
+        "description": "Atlantic, Mediterranean, and Indian Ocean waters around Africa"
+    },
+    "europe": {
+        "name": "European Waters", 
+        "bounds": {'min_lat': 35.0, 'max_lat': 72.0, 'min_lon': -25.0, 'max_lon': 45.0},
+        "description": "North Sea, Baltic Sea, Atlantic, and Mediterranean waters"
+    },
+    "asia_pacific": {
+        "name": "Asia-Pacific Region",
+        "bounds": {'min_lat': -10.0, 'max_lat': 55.0, 'min_lon': 60.0, 'max_lon': 180.0},
+        "description": "Indian Ocean and Western Pacific waters"
+    },
+    "north_america": {
+        "name": "North American Continental Shelf",
+        "bounds": {'min_lat': 25.0, 'max_lat': 72.0, 'min_lon': -180.0, 'max_lon': -50.0},
+        "description": "Atlantic and Pacific waters around North America"
     }
 }

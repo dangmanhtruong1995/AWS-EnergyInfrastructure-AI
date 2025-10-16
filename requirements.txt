@@ -21,3 +21,6 @@ utm
 PyPDF2
 requests
 global-land-mask
+copernicusmarine
+xarray
+rioxarray

@@ -256,8 +256,9 @@ def generate_data_source_footer(used_sources: Set[str]) -> str:
 # What about Peterhead ?
 
 # Find all seismic events which are within 100 kilometres from existing wind farms
-# Plan low-impact exploration sites in the North Sea with 10 kilometer grid cells
 
+# Plan low-impact exploration sites in the North Sea with 10 kilometer grid cells
+# Very well, now I want economic criterion to be doubled.
 # === Gradio Frontend ===
 def create_enhanced_interface():
     # Custom CSS for better styling
