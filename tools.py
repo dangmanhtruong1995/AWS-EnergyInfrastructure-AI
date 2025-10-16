@@ -33,7 +33,8 @@ from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelRequest, ToolReturnPart
 
 # from config import BASE_PATH, DATASETS, DATASET_LIST, DATASET_LEGEND_DICT
-from config import DATASET_LEGEND_DICT, DATASET_LIST, SCENARIOS
+from config import DATASET_LEGEND_DICT, DATASET_LIST, SCENARIOS,\
+    WIND_FARM_SCENARIOS
 from utils import calculate_distance, load_data_and_process, add_data_source
 from schemas import DataSourceTracker, GetWellEntryInput,\
     WellEntryOutput, DataSourceOutput, SeismicAndDrillingInput,\
@@ -2476,12 +2477,22 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
                                 max_lon: float = None,
                                 location_name: str = None,
                                 goal: str = "balance environmental and economic factors",
+                                
+                                # NEW: Scenario-based weight management
+                                scenario_name: str = None,
+                                adjust_wind_resource: float = 0.0,
+                                adjust_environmental: float = 0.0,
+                                adjust_economic: float = 0.0,
+                                adjust_operational: float = 0.0,
+                                
+                                # Existing weight parameters (used if no scenario specified)
                                 wind_resource_weight: float = 0.4,
                                 environmental_weight: float = 0.25,
                                 economic_weight: float = 0.25,
                                 operational_weight: float = 0.1,
-                                min_wind_resource: float = 0.01,  # Lowered from 0.3
-                                max_wave_height: float = 12.0,    # Increased from 4.0
+                                
+                                min_wind_resource: float = 0.01,
+                                max_wave_height: float = 12.0,
                                 num_sites: int = 40,
                                 cell_size_km: float = 20.0,
                                 fast_mode: bool = True,
@@ -2494,9 +2505,17 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
         min_lat, max_lat, min_lon, max_lon: Explicit geographical bounds
         location_name: Name of the analyzed location
         goal: Planning objective
-        wind_resource_weight to operational_weight: Criterion weights (0-1)
-        min_wind_resource: Minimum wind resource threshold (relaxed if needed)
-        max_wave_height: Maximum wave height threshold (relaxed if needed)
+        
+        scenario_name: Use predefined scenario weights ("balanced_wind", "wind_resource_focus", 
+                      "environmental_focus", "economic_focus", "operational_focus")
+        adjust_wind_resource: Adjustment to wind resource weight (+/- 0.X)
+        adjust_environmental: Adjustment to environmental weight (+/- 0.X)
+        adjust_economic: Adjustment to economic weight (+/- 0.X)  
+        adjust_operational: Adjustment to operational weight (+/- 0.X)
+        
+        wind_resource_weight to operational_weight: Direct weights (used if scenario_name=None)
+        min_wind_resource: Minimum wind resource threshold
+        max_wave_height: Maximum wave height threshold
         num_sites: Number of sites to return
         cell_size_km: Grid cell size
         fast_mode: Use optimized algorithms
@@ -2510,6 +2529,64 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
     print(f"Starting adaptive wind farm planning for {region}...")
     
     try:
+        # NEW: Handle scenario-based weights
+        from config import WIND_FARM_SCENARIOS
+        
+        final_weights = {}
+        scenario_info = {}
+        
+        if scenario_name is not None:
+            if scenario_name not in WIND_FARM_SCENARIOS:
+                available = ", ".join(WIND_FARM_SCENARIOS.keys())
+                return json.dumps({
+                    'error': f'Unknown scenario "{scenario_name}". Available: {available}'
+                })
+            
+            # Start with scenario base weights
+            base_weights = WIND_FARM_SCENARIOS[scenario_name].copy()
+            scenario_info['base_scenario'] = scenario_name
+            scenario_info['base_weights'] = base_weights.copy()
+            
+            # Apply adjustments
+            adjustments = {}
+            if adjust_wind_resource != 0.0:
+                base_weights['wind_resource'] = max(0, base_weights['wind_resource'] + adjust_wind_resource)
+                adjustments['wind_resource'] = adjust_wind_resource
+            if adjust_environmental != 0.0:
+                base_weights['environmental'] = max(0, base_weights['environmental'] + adjust_environmental)
+                adjustments['environmental'] = adjust_environmental
+            if adjust_economic != 0.0:
+                base_weights['economic'] = max(0, base_weights['economic'] + adjust_economic)
+                adjustments['economic'] = adjust_economic
+            if adjust_operational != 0.0:
+                base_weights['operational'] = max(0, base_weights['operational'] + adjust_operational)
+                adjustments['operational'] = adjust_operational
+            
+            scenario_info['adjustments'] = adjustments
+            
+            # Normalize weights
+            total_weight = sum(base_weights.values())
+            if total_weight == 0:
+                return json.dumps({'error': 'All weights are zero after adjustments'})
+            
+            final_weights = {k: v / total_weight for k, v in base_weights.items()}
+            scenario_info['final_weights'] = final_weights
+            
+            print(f"Using scenario '{scenario_name}' with adjustments: {adjustments}")
+            print(f"Final weights: {final_weights}")
+            
+        else:
+            # Use direct weight parameters (existing behavior)
+            total_weight = wind_resource_weight + environmental_weight + economic_weight + operational_weight
+            final_weights = {
+                'wind_resource': wind_resource_weight / total_weight,
+                'environmental': environmental_weight / total_weight,
+                'economic': economic_weight / total_weight,
+                'operational': operational_weight / total_weight
+            }
+            scenario_info['method'] = 'direct_weights'
+            scenario_info['final_weights'] = final_weights
+
         # Use explicit bounds if all are provided
         bounds_to_use = None
         effective_region = region
@@ -2523,7 +2600,6 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
             }
             effective_region = location_name or f"Custom Location ({min_lat:.1f},{min_lon:.1f})"
             print(f"Using explicit bounds for: {effective_region}")
-
 
         # Initialize planner
         max_cells = 3000 if fast_mode else 8000
@@ -2556,18 +2632,8 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
             wave_scores = planner.calculate_wave_operational_score()
             distance_scores = planner.calculate_distance_to_shore_score()
         
-        # Environmental score (simplified)
-        # env_scores = np.random.uniform(0.4, 0.8, len(planner.grid_gdf))
+        # Environmental score (using real calculation)
         env_scores = planner.calculate_environmental_sensitivity_score_for_windfarm()
-        
-        # Normalize weights
-        total_weight = wind_resource_weight + environmental_weight + economic_weight + operational_weight
-        weights = {
-            'wind_resource': wind_resource_weight / total_weight,
-            'environmental': environmental_weight / total_weight,
-            'economic': economic_weight / total_weight,
-            'operational': operational_weight / total_weight
-        }
         
         # Create results dataframe
         grid_with_scores = planner.grid_gdf.copy()
@@ -2576,12 +2642,12 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
         grid_with_scores['distance_to_shore_score'] = distance_scores
         grid_with_scores['environmental_score'] = env_scores
         
-        # Calculate composite scores
+        # Calculate composite scores using final_weights
         suitability_scores = (
-            weights['wind_resource'] * wind_scores +
-            weights['operational'] * wave_scores +
-            weights['economic'] * distance_scores +
-            weights['environmental'] * env_scores
+            final_weights['wind_resource'] * wind_scores +
+            final_weights['operational'] * wave_scores +
+            final_weights['economic'] * distance_scores +
+            final_weights['environmental'] * env_scores
         )
         
         grid_with_scores['suitability_score'] = suitability_scores
@@ -2647,13 +2713,13 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
         top_sites = suitable_sites.nlargest(num_sites, 'suitability_score')
         
         # Create visualization
-        map_html = create_wind_farm_map(top_sites, suitable_sites, region, weights)
+        map_html = create_wind_farm_map(top_sites, suitable_sites, region, final_weights)
         
         total_time = (datetime.now() - start_time).total_seconds()
         
         # Generate comprehensive report
         report = generate_adaptive_wind_farm_report(
-            top_sites, weights, region, goal, planner.data_availability,
+            top_sites, final_weights, region, goal, planner.data_availability,
             original_constraints, constraint_adjustments, 
             min_wind_resource, max_wave_height, fast_mode, total_time
         )
@@ -2664,7 +2730,8 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
             'region_analyzed': region,
             'total_suitable_sites': len(suitable_sites),
             'top_candidates': len(top_sites),
-            'weights_applied': weights,
+            'weights_applied': final_weights,
+            'scenario_information': scenario_info,  # NEW: Include scenario details
             'original_constraints': original_constraints,
             'final_constraints': {
                 'min_wind_resource': min_wind_resource,
@@ -2709,6 +2776,250 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
             'region': region,
             'suggestion': 'Check data availability and regional boundaries'
         })
+
+
+# def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
+#                                 region: str = "africa",
+#                                 # Explicit bounds parameters (if provided, override region)
+#                                 min_lat: float = None,
+#                                 max_lat: float = None, 
+#                                 min_lon: float = None,
+#                                 max_lon: float = None,
+#                                 location_name: str = None,
+#                                 goal: str = "balance environmental and economic factors",
+#                                 wind_resource_weight: float = 0.4,
+#                                 environmental_weight: float = 0.25,
+#                                 economic_weight: float = 0.25,
+#                                 operational_weight: float = 0.1,
+#                                 min_wind_resource: float = 0.01,  # Lowered from 0.3
+#                                 max_wave_height: float = 12.0,    # Increased from 4.0
+#                                 num_sites: int = 40,
+#                                 cell_size_km: float = 20.0,
+#                                 fast_mode: bool = True,
+#                                 adaptive_constraints: bool = True) -> str:
+#     """
+#     Plan offshore wind farm sites for any location.
+    
+#     Args:
+#         region: Target region (used if explicit bounds not provided)
+#         min_lat, max_lat, min_lon, max_lon: Explicit geographical bounds
+#         location_name: Name of the analyzed location
+#         goal: Planning objective
+#         wind_resource_weight to operational_weight: Criterion weights (0-1)
+#         min_wind_resource: Minimum wind resource threshold (relaxed if needed)
+#         max_wave_height: Maximum wave height threshold (relaxed if needed)
+#         num_sites: Number of sites to return
+#         cell_size_km: Grid cell size
+#         fast_mode: Use optimized algorithms
+#         adaptive_constraints: Automatically relax constraints if no sites found
+    
+#     Return:
+#         JSON with results, constraint adjustments, and recommendations
+#     """
+    
+#     start_time = datetime.now()
+#     print(f"Starting adaptive wind farm planning for {region}...")
+    
+#     try:
+#         # Use explicit bounds if all are provided
+#         bounds_to_use = None
+#         effective_region = region
+        
+#         if all(param is not None for param in [min_lat, max_lat, min_lon, max_lon]):
+#             bounds_to_use = {
+#                 'min_lat': min_lat,
+#                 'max_lat': max_lat, 
+#                 'min_lon': min_lon,
+#                 'max_lon': max_lon
+#             }
+#             effective_region = location_name or f"Custom Location ({min_lat:.1f},{min_lon:.1f})"
+#             print(f"Using explicit bounds for: {effective_region}")
+
+
+#         # Initialize planner
+#         max_cells = 3000 if fast_mode else 8000
+#         planner = GlobalWindFarmPlanner(
+#             region=region,
+#             cell_size_km=cell_size_km,
+#             max_grid_cells=max_cells,
+#             custom_bounds=bounds_to_use,
+#         )
+        
+#         # Create grid
+#         planner.create_grid()
+        
+#         if len(planner.grid_gdf) == 0:
+#             return json.dumps({
+#                 'error': 'No offshore grid cells created',
+#                 'region': region,
+#                 'suggestion': 'Try different region or check regional boundaries'
+#             })
+        
+#         print(f"Grid created: {len(planner.grid_gdf)} cells")
+        
+#         # Calculate scores
+#         if fast_mode:
+#             wind_scores = planner.calculate_wind_resource_score_vectorized()
+#             wave_scores = planner.calculate_wave_operational_score_fast()
+#             distance_scores = planner.calculate_distance_to_shore_score_fast()
+#         else:
+#             wind_scores = planner.calculate_wind_resource_score()
+#             wave_scores = planner.calculate_wave_operational_score()
+#             distance_scores = planner.calculate_distance_to_shore_score()
+        
+#         # Environmental score (simplified)
+#         # env_scores = np.random.uniform(0.4, 0.8, len(planner.grid_gdf))
+#         env_scores = planner.calculate_environmental_sensitivity_score_for_windfarm()
+        
+#         # Normalize weights
+#         total_weight = wind_resource_weight + environmental_weight + economic_weight + operational_weight
+#         weights = {
+#             'wind_resource': wind_resource_weight / total_weight,
+#             'environmental': environmental_weight / total_weight,
+#             'economic': economic_weight / total_weight,
+#             'operational': operational_weight / total_weight
+#         }
+        
+#         # Create results dataframe
+#         grid_with_scores = planner.grid_gdf.copy()
+#         grid_with_scores['wind_resource_score'] = wind_scores
+#         grid_with_scores['wave_operational_score'] = wave_scores
+#         grid_with_scores['distance_to_shore_score'] = distance_scores
+#         grid_with_scores['environmental_score'] = env_scores
+        
+#         # Calculate composite scores
+#         suitability_scores = (
+#             weights['wind_resource'] * wind_scores +
+#             weights['operational'] * wave_scores +
+#             weights['economic'] * distance_scores +
+#             weights['environmental'] * env_scores
+#         )
+        
+#         grid_with_scores['suitability_score'] = suitability_scores
+        
+#         # Store original constraints for reporting
+#         original_constraints = {
+#             'min_wind_resource': min_wind_resource,
+#             'max_wave_height': max_wave_height
+#         }
+        
+#         # Adaptive constraint relaxation
+#         constraint_adjustments = []
+#         wave_score_threshold = max(0, 1 - max_wave_height / 10)
+        
+#         # First attempt with original constraints
+#         suitable_sites = grid_with_scores[
+#             (grid_with_scores['wind_resource_score'] >= min_wind_resource) &
+#             (grid_with_scores['wave_operational_score'] >= wave_score_threshold)
+#         ].copy()
+        
+#         # Check data distribution for debugging
+#         print(f"Score distributions:")
+#         print(f"Wind resource: min={wind_scores.min():.3f}, max={wind_scores.max():.3f}, mean={wind_scores.mean():.3f}")
+#         print(f"Wave operational: min={wave_scores.min():.3f}, max={wave_scores.max():.3f}, mean={wave_scores.mean():.3f}")
+#         print(f"Suitability: min={suitability_scores.min():.3f}, max={suitability_scores.max():.3f}, mean={suitability_scores.mean():.3f}")
+        
+#         # Adaptive constraint relaxation if needed
+#         if len(suitable_sites) == 0 and adaptive_constraints:
+#             print("No sites found with original constraints, applying adaptive relaxation...")
+            
+#             # Relax wind resource constraint
+#             wind_percentile_20 = np.percentile(wind_scores, 20)
+#             if min_wind_resource > wind_percentile_20:
+#                 new_min_wind = max(0.1, wind_percentile_20)
+#                 constraint_adjustments.append(f"Wind resource lowered from {min_wind_resource:.2f} to {new_min_wind:.2f}")
+#                 min_wind_resource = new_min_wind
+            
+#             # Relax wave constraint
+#             wave_percentile_80 = np.percentile(wave_scores, 80)
+#             new_max_wave = min(8.0, 10 * (1 - wave_percentile_80))  # Convert back to wave height
+#             if new_max_wave > max_wave_height:
+#                 constraint_adjustments.append(f"Wave height increased from {max_wave_height:.1f}m to {new_max_wave:.1f}m")
+#                 max_wave_height = new_max_wave
+            
+#             # Recalculate with relaxed constraints
+#             wave_score_threshold = max(0, 1 - max_wave_height / 10)
+            
+#             suitable_sites = grid_with_scores[
+#                 (grid_with_scores['wind_resource_score'] >= min_wind_resource) &
+#                 (grid_with_scores['wave_operational_score'] >= wave_score_threshold)
+#             ].copy()
+            
+#             print(f"After constraint relaxation: {len(suitable_sites)} suitable sites found")
+        
+#         # If still no sites, take top percentage regardless of constraints
+#         if len(suitable_sites) == 0:
+#             print("Still no sites found, selecting top 10% by suitability score...")
+#             top_10_percent = max(1, len(grid_with_scores) // 10)
+#             suitable_sites = grid_with_scores.nlargest(top_10_percent, 'suitability_score')
+#             constraint_adjustments.append("Selected top 10% of sites regardless of original constraints")
+        
+#         # Get top candidates
+#         top_sites = suitable_sites.nlargest(num_sites, 'suitability_score')
+        
+#         # Create visualization
+#         map_html = create_wind_farm_map(top_sites, suitable_sites, region, weights)
+        
+#         total_time = (datetime.now() - start_time).total_seconds()
+        
+#         # Generate comprehensive report
+#         report = generate_adaptive_wind_farm_report(
+#             top_sites, weights, region, goal, planner.data_availability,
+#             original_constraints, constraint_adjustments, 
+#             min_wind_resource, max_wave_height, fast_mode, total_time
+#         )
+        
+#         result = {
+#             'report': report,
+#             'map_html': map_html,
+#             'region_analyzed': region,
+#             'total_suitable_sites': len(suitable_sites),
+#             'top_candidates': len(top_sites),
+#             'weights_applied': weights,
+#             'original_constraints': original_constraints,
+#             'final_constraints': {
+#                 'min_wind_resource': min_wind_resource,
+#                 'max_wave_height': max_wave_height
+#             },
+#             'constraint_adjustments': constraint_adjustments,
+#             'score_statistics': {
+#                 'wind_resource': {
+#                     'min': float(wind_scores.min()),
+#                     'max': float(wind_scores.max()),
+#                     'mean': float(wind_scores.mean())
+#                 },
+#                 'wave_operational': {
+#                     'min': float(wave_scores.min()),
+#                     'max': float(wave_scores.max()),
+#                     'mean': float(wave_scores.mean())
+#                 },
+#                 'suitability': {
+#                     'min': float(suitability_scores.min()),
+#                     'max': float(suitability_scores.max()),
+#                     'mean': float(suitability_scores.mean())
+#                 }
+#             },
+#             'performance_metrics': {
+#                 'total_time_seconds': round(total_time, 1),
+#                 'grid_cells_processed': len(planner.grid_gdf),
+#                 'fast_mode_used': fast_mode
+#             },
+#             'data_quality': planner.data_availability
+#         }
+        
+#         print(f"Analysis completed in {total_time:.1f}s with {len(top_sites)} sites")
+#         return json.dumps(result)
+        
+#     except Exception as e:
+#         print(f"Error in adaptive planning: {e}")
+#         import traceback
+#         traceback.print_exc()
+        
+#         return json.dumps({
+#             'error': f'Planning failed: {str(e)}',
+#             'region': region,
+#             'suggestion': 'Check data availability and regional boundaries'
+#         })
 
 
 def generate_adaptive_wind_farm_report(top_sites: gpd.GeoDataFrame,

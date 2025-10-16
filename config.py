@@ -107,19 +107,52 @@ SCENARIOS = {
 
 # Wind farm specific scenarios
 WIND_FARM_SCENARIOS = {
+    "balanced_wind": {
+        "wind_resource": 0.35, 
+        "environmental": 0.25, 
+        "economic": 0.25, 
+        "operational": 0.15
+    },
     "wind_resource_focus": {
-        "wind_resource": 0.6, "environmental": 0.2, "economic": 0.1, "wave_conditions": 0.1
+        "wind_resource": 0.6, 
+        "environmental": 0.15, 
+        "economic": 0.15, 
+        "operational": 0.1
     },
     "environmental_focus": {
-        "wind_resource": 0.2, "environmental": 0.5, "economic": 0.15, "wave_conditions": 0.15
+        "wind_resource": 0.2, 
+        "environmental": 0.5, 
+        "economic": 0.15, 
+        "operational": 0.15
     },
     "economic_focus": {
-        "wind_resource": 0.3, "environmental": 0.1, "economic": 0.4, "wave_conditions": 0.2
+        "wind_resource": 0.25, 
+        "environmental": 0.1, 
+        "economic": 0.5, 
+        "operational": 0.15
     },
-    "balanced_wind_farm": {
-        "wind_resource": 0.35, "environmental": 0.25, "economic": 0.25, "wave_conditions": 0.15
+    "operational_focus": {
+        "wind_resource": 0.25, 
+        "environmental": 0.15, 
+        "economic": 0.2, 
+        "operational": 0.4
     }
 }
+
+# WIND_FARM_SCENARIOS = {
+#     "wind_resource_focus": {
+#         "wind_resource": 0.6, "environmental": 0.2, "economic": 0.1, "wave_conditions": 0.1
+#     },
+#     "environmental_focus": {
+#         "wind_resource": 0.2, "environmental": 0.5, "economic": 0.15, "wave_conditions": 0.15
+#     },
+#     "economic_focus": {
+#         "wind_resource": 0.3, "environmental": 0.1, "economic": 0.4, "wave_conditions": 0.2
+#     },
+#     "balanced_wind_farm": {
+#         "wind_resource": 0.35, "environmental": 0.25, "economic": 0.25, "wave_conditions": 0.15
+#     }
+# }
 
 # Regional boundaries for global analysis
 GLOBAL_REGIONS = {
