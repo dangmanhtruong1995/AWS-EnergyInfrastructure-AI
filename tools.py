@@ -1748,133 +1748,6 @@ Unable to create comprehensive risk assessment map visualization.
     
 
 # === Tools relating to exploration planner ===
-# def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker],
-#                                       goal: str = "minimize environmental impact",
-#                                       max_seismic_risk: float = 0.3,
-#                                       max_ecological_sensitivity: float = 0.4,
-#                                       min_infrastructure_proximity: float = 0.1,
-#                                       num_sites: int = 10,
-#                                       cell_size_km: float = 5.0,
-#                                       ) -> str:
-#     """
-#     Autonomous exploration planning that identifies low-environmental-impact candidate locations
-#     for new exploration/drilling, balancing seismic risk, ecological sensitivity, and infrastructure proximity.
-    
-#     Args:
-#         goal: Planning objective ("minimize environmental impact", "balance economics and environment", "maximize safety")
-#         max_seismic_risk: Maximum acceptable seismic risk score (0.0-1.0)
-#         max_ecological_sensitivity: Maximum acceptable ecological sensitivity (0.0-1.0)
-#         min_infrastructure_proximity: Minimum required infrastructure proximity (0.0-1.0)
-#         num_sites: Number of candidate sites to return
-#         cell_size_km: Grid cell size in kilometers
-    
-#     Return:
-#         JSON string with exploration plan, map, and detailed site analyses
-#     """
-    
-#     print(f"🎯 Planning exploration sites with goal: {goal}")
-#     print(f"📊 Constraints: seismic≤{max_seismic_risk}, ecological≤{max_ecological_sensitivity}, infrastructure≥{min_infrastructure_proximity}")
-    
-#     try:
-#         # Import the grid system
-        
-        
-#         # Add data sources to tracker
-#         add_data_source(run_context, ["seismic", "wells", "pipelines", "offshore_fields"])
-        
-#         # Initialize grid system
-#         grid_system = ExplorationGridSystem(cell_size_km=cell_size_km)
-        
-#         # Calculate all scores
-#         print("Calculate all grid scores")
-#         grid_with_scores = grid_system.get_scored_grid()
-        
-#         # Apply constraints to filter suitable cells
-#         suitable_cells = grid_with_scores[
-#             (grid_with_scores['seismic_score'] <= max_seismic_risk) &
-#             (grid_with_scores['ecological_score'] <= max_ecological_sensitivity) &
-#             (grid_with_scores['infrastructure_score'] >= min_infrastructure_proximity)
-#         ].copy()
-        
-#         if len(suitable_cells) == 0:
-#             return json.dumps({
-#                 'error': 'No sites meet the specified constraints',
-#                 'recommendation': 'Try relaxing constraints or expanding search area',
-#                 'report': 'No suitable exploration sites found with current criteria.'
-#             })
-        
-#         print(f"📍 Found {len(suitable_cells)} cells meeting constraints")
-        
-#         # Determine weights based on goal
-#         if "environmental" in goal.lower() or "minimize" in goal.lower():
-#             weights = {'seismic': 0.3, 'ecological': 0.5, 'infrastructure': 0.2}
-#             scenario_name = "Environment-Focused"
-#         elif "balance" in goal.lower():
-#             weights = {'seismic': 0.33, 'ecological': 0.33, 'infrastructure': 0.34}
-#             scenario_name = "Balanced"
-#         elif "safety" in goal.lower():
-#             weights = {'seismic': 0.6, 'ecological': 0.2, 'infrastructure': 0.2}
-#             scenario_name = "Safety-Focused"
-#         else:
-#             weights = {'seismic': 0.3, 'ecological': 0.4, 'infrastructure': 0.3}
-#             scenario_name = "Default"
-        
-#         # Run MCDA on suitable cells
-#         print("Run MCDA on suitable cells ...")
-#         ranked_cells = grid_system.run_mcda_analysis(weights)
-        
-#         # Filter to only suitable cells and get top candidates
-#         ranked_suitable = ranked_cells[
-#             (ranked_cells['seismic_score'] <= max_seismic_risk) &
-#             (ranked_cells['ecological_score'] <= max_ecological_sensitivity) &
-#             (ranked_cells['infrastructure_score'] >= min_infrastructure_proximity)
-#         ].head(num_sites)
-        
-#         if len(ranked_suitable) == 0:
-#             return json.dumps({
-#                 'error': 'No suitable sites after MCDA ranking',
-#                 'report': 'MCDA analysis found no sites meeting criteria.'
-#             })
-        
-#         # Create interactive map
-#         print("Create interactive map ...")
-#         map_html = create_exploration_map(ranked_suitable, grid_with_scores, weights)
-        
-#         # Generate LLM explanations for top sites
-#         print("Generate LLM explanations for top sites ...")
-#         site_explanations = generate_site_explanations(ranked_suitable.head(5), weights, scenario_name)
-        
-#         # Create comprehensive report
-#         print("Create comprehensive report ...")
-#         report = generate_exploration_report(ranked_suitable, weights, scenario_name, 
-#                                            max_seismic_risk, max_ecological_sensitivity, 
-#                                            min_infrastructure_proximity)
-        
-#         result = {
-#             'report': report,
-#             'map_html': map_html,
-#             'scenario_used': scenario_name,
-#             'weights_applied': weights,
-#             'total_suitable_sites': len(suitable_cells),
-#             'top_candidates': len(ranked_suitable),
-#             'site_explanations': site_explanations,
-#             'constraints_applied': {
-#                 'max_seismic_risk': max_seismic_risk,
-#                 'max_ecological_sensitivity': max_ecological_sensitivity,
-#                 'min_infrastructure_proximity': min_infrastructure_proximity
-#             }
-#         }
-        
-#         return json.dumps(result)
-        
-#     except Exception as e:
-#         error_result = {
-#             'error': f'Exploration planning failed: {str(e)}',
-#             'report': f'Unable to complete exploration planning due to: {str(e)}'
-#         }
-#         return json.dumps(error_result)
-
-
 def create_exploration_map(top_sites: gpd.GeoDataFrame, 
                           all_grid: gpd.GeoDataFrame, 
                           weights: Dict[str, float]) -> str:
@@ -2137,31 +2010,221 @@ def create_exploration_map(top_sites: gpd.GeoDataFrame,
 
 
 
+# def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker],
+#                                       goal: str = "minimize environmental impact",
+#                                       max_seismic_risk: float = 0.3,
+#                                       max_ecological_sensitivity: float = 0.4,
+#                                       min_infrastructure_proximity: float = 0.1,
+#                                       num_sites: int = 10,
+#                                       cell_size_km: float = 5.0) -> str:
+#     """
+#     Autonomous exploration planning that identifies low-environmental-impact candidate locations
+#     for new exploration/drilling, balancing seismic risk, ecological sensitivity, and infrastructure proximity.
+    
+#     Args:
+#         goal: Planning objective ("minimize environmental impact", "balance economics and environment", "maximize safety")
+#         max_seismic_risk: Maximum acceptable seismic risk score (0.0-1.0)
+#         max_ecological_sensitivity: Maximum acceptable ecological sensitivity (0.0-1.0)
+#         min_infrastructure_proximity: Minimum required infrastructure proximity (0.0-1.0)
+#         num_sites: Number of candidate sites to return
+#         cell_size_km: Grid cell size in kilometers
+    
+#     Return:
+#         JSON string with exploration plan, map, and detailed site analyses
+
+#     """
+    
+#     print(f"🎯 Planning exploration sites with goal: {goal}")
+    
+#     try:
+#         from grid_system import ExplorationGridSystem
+        
+#         add_data_source(run_context, ["seismic", "wells", "pipelines", "offshore_fields"])
+        
+#         # Initialize and create grid
+#         grid_system = ExplorationGridSystem(cell_size_km=cell_size_km)
+        
+#         # Calculate all scores - this creates the suitability_score column
+#         grid_with_scores = grid_system.get_scored_grid()
+#         print(f"DEBUG: Grid created with columns: {grid_with_scores.columns.tolist()}")
+#         print(f"DEBUG: Grid shape: {grid_with_scores.shape}")
+        
+#         # Apply constraints
+#         suitable_cells = grid_with_scores[
+#             (grid_with_scores['seismic_score'] <= max_seismic_risk) &
+#             (grid_with_scores['ecological_score'] <= max_ecological_sensitivity) &
+#             (grid_with_scores['infrastructure_score'] >= min_infrastructure_proximity)
+#         ].copy()
+        
+#         if len(suitable_cells) == 0:
+#             return json.dumps({
+#                 'error': 'No sites meet the specified constraints',
+#                 'recommendation': 'Try relaxing constraints',
+#                 'report': 'No suitable exploration sites found.'
+#             })
+        
+#         print(f"📍 Found {len(suitable_cells)} cells meeting constraints")
+        
+#         # Determine weights and run MCDA
+#         if "environmental" in goal.lower():
+#             weights = {'seismic': 0.3, 'ecological': 0.5, 'infrastructure': 0.2}
+#             scenario_name = "Environment-Focused"
+#         else:
+#             weights = {'seismic': 0.33, 'ecological': 0.33, 'infrastructure': 0.34}
+#             scenario_name = "Balanced"
+        
+#         # Get top candidates
+#         ranked_suitable = suitable_cells.sort_values('suitability_score').head(num_sites)
+        
+#         # PASS THE FULL GRID WITH SCORES to the map function
+#         map_html = create_exploration_map(ranked_suitable, grid_with_scores, weights)
+        
+#         # Generate explanations and report
+#         site_explanations = generate_site_explanations(ranked_suitable.head(5), weights, scenario_name)
+#         report = generate_exploration_report(ranked_suitable, weights, scenario_name, 
+#                                            max_seismic_risk, max_ecological_sensitivity, 
+#                                            min_infrastructure_proximity)
+        
+#         result = {
+#             'report': report,
+#             'map_html': map_html,
+#             'scenario_used': scenario_name,
+#             'weights_applied': weights,
+#             'total_suitable_sites': len(suitable_cells),
+#             'top_candidates': len(ranked_suitable),
+#             'site_explanations': site_explanations
+#         }
+        
+#         return json.dumps(result)
+        
+#     except Exception as e:
+#         print(f"ERROR in exploration planning: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         return json.dumps({
+#             'error': f'Planning failed: {str(e)}',
+#             'report': f'Unable to complete planning: {str(e)}'
+#         })
+
+
 def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker],
                                       goal: str = "minimize environmental impact",
+                                      scenario_name: str = "environment_focus",
+                                      adjust_safety: float = 0.0,
+                                      adjust_technical: float = 0.0, 
+                                      adjust_economic: float = 0.0,
+                                      adjust_environment: float = 0.0,
                                       max_seismic_risk: float = 0.3,
                                       max_ecological_sensitivity: float = 0.4,
                                       min_infrastructure_proximity: float = 0.1,
                                       num_sites: int = 10,
                                       cell_size_km: float = 5.0) -> str:
-    """Updated exploration planner with better debugging and grid passing."""
+    """
+    Autonomous exploration planning that identifies low-environmental-impact candidate locations
+    for new exploration/drilling, balancing seismic risk, ecological sensitivity, and infrastructure proximity.
+    
+    Available scenarios from config.py:
+    - "balanced": All objectives weighted equally at 0.25
+    - "economic_focus": Economic weighted at 0.5, others at 0.1-0.2  
+    - "safety_focus": Safety weighted at 0.5, others at 0.1-0.2
+    - "technical_focus": Technical weighted at 0.5, others at 0.1-0.2
+    - "environment_focus": Environment weighted at 0.5, others at 0.1-0.2
+    
+    Args:
+        goal: Planning objective description (used for report generation)
+        scenario_name: Base scenario from SCENARIOS in config.py
+        adjust_safety: Adjustment to safety weight (e.g., +0.1 to increase by 0.1)
+        adjust_technical: Adjustment to technical weight  
+        adjust_economic: Adjustment to economic weight
+        adjust_environment: Adjustment to environment weight
+        max_seismic_risk: Maximum acceptable seismic risk score (0.0-1.0)
+        max_ecological_sensitivity: Maximum acceptable ecological sensitivity (0.0-1.0)
+        min_infrastructure_proximity: Minimum required infrastructure proximity (0.0-1.0)
+        num_sites: Number of candidate sites to return
+        cell_size_km: Grid cell size in kilometers
+    
+    Examples:
+        - "Use safety focus with more emphasis on technical aspects" → scenario_name="safety_focus", adjust_technical=0.2
+        - "Balanced approach but reduce economic importance" → scenario_name="balanced", adjust_economic=-0.1
+    
+    Return:
+        JSON string with exploration plan, map, and detailed site analyses
+    """
     
     print(f"🎯 Planning exploration sites with goal: {goal}")
+    print(f"📋 Base scenario: {scenario_name}")
     
     try:
+        # Import the grid system
         from grid_system import ExplorationGridSystem
+        from config import SCENARIOS
         
+        # Add data sources to tracker
         add_data_source(run_context, ["seismic", "wells", "pipelines", "offshore_fields"])
         
-        # Initialize and create grid
+        # Get base weights from config scenarios
+        if scenario_name not in SCENARIOS:
+            available_scenarios = ", ".join(SCENARIOS.keys())
+            return json.dumps({
+                'error': f'Unknown scenario "{scenario_name}". Available: {available_scenarios}',
+                'report': f'Scenario "{scenario_name}" not found in configuration.'
+            })
+        
+        # Start with base scenario weights
+        weights = SCENARIOS[scenario_name].copy()
+        print(f"📊 Base weights from {scenario_name}: {weights}")
+        
+        # Apply user adjustments
+        adjustments = {}
+        if adjust_safety != 0.0:
+            weights['safety'] = max(0, weights['safety'] + adjust_safety)
+            adjustments['safety'] = adjust_safety
+        if adjust_technical != 0.0:
+            weights['technical'] = max(0, weights['technical'] + adjust_technical)
+            adjustments['technical'] = adjust_technical
+        if adjust_economic != 0.0:
+            weights['economic'] = max(0, weights['economic'] + adjust_economic)
+            adjustments['economic'] = adjust_economic
+        if adjust_environment != 0.0:
+            weights['environment'] = max(0, weights['environment'] + adjust_environment)
+            adjustments['environment'] = adjust_environment
+        
+        # Normalize weights to sum to 1.0
+        total_weight = sum(weights.values())
+        if total_weight == 0:
+            return json.dumps({
+                'error': 'All weights are zero after adjustments',
+                'report': 'Weight adjustments resulted in zero total weight.'
+            })
+        
+        weights = {k: v / total_weight for k, v in weights.items()}
+        
+        if adjustments:
+            print(f"🔧 Applied adjustments: {adjustments}")
+        print(f"⚖️ Final normalized weights: {weights}")
+        
+        # Map weights to grid scoring system (safety→seismic, environment→ecological, etc.)
+        mcda_weights = {
+            'seismic': weights['safety'],
+            'ecological': weights['environment'], 
+            'infrastructure': weights['technical'] + weights['economic']  # Combine technical and economic for infrastructure
+        }
+        
+        # Renormalize MCDA weights
+        mcda_total = sum(mcda_weights.values())
+        mcda_weights = {k: v / mcda_total for k, v in mcda_weights.items()}
+        
+        print(f"🔄 Mapped to MCDA weights: {mcda_weights}")
+        print(f"📐 Constraints: seismic≤{max_seismic_risk}, ecological≤{max_ecological_sensitivity}, infrastructure≥{min_infrastructure_proximity}")
+        
+        # Initialize grid system
         grid_system = ExplorationGridSystem(cell_size_km=cell_size_km)
         
-        # Calculate all scores - this creates the suitability_score column
+        # Calculate all scores
+        print("🔢 Calculating grid scores...")
         grid_with_scores = grid_system.get_scored_grid()
-        print(f"DEBUG: Grid created with columns: {grid_with_scores.columns.tolist()}")
-        print(f"DEBUG: Grid shape: {grid_with_scores.shape}")
         
-        # Apply constraints
+        # Apply constraints to filter suitable cells
         suitable_cells = grid_with_scores[
             (grid_with_scores['seismic_score'] <= max_seismic_risk) &
             (grid_with_scores['ecological_score'] <= max_ecological_sensitivity) &
@@ -2171,52 +2234,285 @@ def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker]
         if len(suitable_cells) == 0:
             return json.dumps({
                 'error': 'No sites meet the specified constraints',
-                'recommendation': 'Try relaxing constraints',
-                'report': 'No suitable exploration sites found.'
+                'recommendation': 'Try relaxing constraints or expanding search area',
+                'report': 'No suitable exploration sites found with current criteria.',
+                'scenario_used': scenario_name,
+                'weights_applied': weights,
+                'adjustments_made': adjustments
             })
         
-        print(f"📍 Found {len(suitable_cells)} cells meeting constraints")
+        print(f"🔍 Found {len(suitable_cells)} cells meeting constraints")
         
-        # Determine weights and run MCDA
-        if "environmental" in goal.lower():
-            weights = {'seismic': 0.3, 'ecological': 0.5, 'infrastructure': 0.2}
-            scenario_name = "Environment-Focused"
-        else:
-            weights = {'seismic': 0.33, 'ecological': 0.33, 'infrastructure': 0.34}
-            scenario_name = "Balanced"
+        # Run MCDA on suitable cells using the calculated weights
+        print("🎯 Running MCDA analysis...")
+        ranked_cells = grid_system.run_mcda_analysis(mcda_weights)
         
-        # Get top candidates
-        ranked_suitable = suitable_cells.sort_values('suitability_score').head(num_sites)
+        # Filter to only suitable cells and get top candidates
+        ranked_suitable = ranked_cells[
+            (ranked_cells['seismic_score'] <= max_seismic_risk) &
+            (ranked_cells['ecological_score'] <= max_ecological_sensitivity) &
+            (ranked_cells['infrastructure_score'] >= min_infrastructure_proximity)
+        ].head(num_sites)
         
-        # PASS THE FULL GRID WITH SCORES to the map function
-        map_html = create_exploration_map(ranked_suitable, grid_with_scores, weights)
+        if len(ranked_suitable) == 0:
+            return json.dumps({
+                'error': 'No suitable sites after MCDA ranking',
+                'report': 'MCDA analysis found no sites meeting criteria.',
+                'scenario_used': scenario_name,
+                'weights_applied': weights
+            })
         
-        # Generate explanations and report
-        site_explanations = generate_site_explanations(ranked_suitable.head(5), weights, scenario_name)
-        report = generate_exploration_report(ranked_suitable, weights, scenario_name, 
-                                           max_seismic_risk, max_ecological_sensitivity, 
-                                           min_infrastructure_proximity)
+        # Create interactive map
+        print("🗺️ Creating interactive map...")
+        map_html = create_exploration_map(ranked_suitable, grid_with_scores, mcda_weights)
+        
+        # Generate scenario description
+        scenario_description = f"{scenario_name}"
+        if adjustments:
+            adj_desc = ", ".join([f"{k} {'+' if v > 0 else ''}{v}" for k, v in adjustments.items()])
+            scenario_description += f" (adjusted: {adj_desc})"
+        
+        # Generate LLM explanations for top sites
+        print("📝 Generating site explanations...")
+        site_explanations = generate_site_explanations(ranked_suitable.head(5), mcda_weights, scenario_description)
+        
+        # Create comprehensive report with scenario info
+        print("📄 Creating comprehensive report...")
+        report = generate_exploration_report_with_scenario(
+            ranked_suitable, weights, mcda_weights, scenario_name, adjustments,
+            max_seismic_risk, max_ecological_sensitivity, min_infrastructure_proximity
+        )
         
         result = {
             'report': report,
             'map_html': map_html,
             'scenario_used': scenario_name,
-            'weights_applied': weights,
+            'scenario_description': scenario_description,
+            'original_weights': SCENARIOS[scenario_name],
+            'adjustments_made': adjustments,
+            'final_weights': weights,
+            'mcda_weights_applied': mcda_weights,
             'total_suitable_sites': len(suitable_cells),
             'top_candidates': len(ranked_suitable),
-            'site_explanations': site_explanations
+            'site_explanations': site_explanations,
+            'constraints_applied': {
+                'max_seismic_risk': max_seismic_risk,
+                'max_ecological_sensitivity': max_ecological_sensitivity,
+                'min_infrastructure_proximity': min_infrastructure_proximity
+            }
         }
         
         return json.dumps(result)
         
     except Exception as e:
-        print(f"ERROR in exploration planning: {e}")
+        print(f"❌ Error in exploration planning: {e}")
         import traceback
         traceback.print_exc()
-        return json.dumps({
-            'error': f'Planning failed: {str(e)}',
-            'report': f'Unable to complete planning: {str(e)}'
-        })
+        error_result = {
+            'error': f'Exploration planning failed: {str(e)}',
+            'report': f'Unable to complete exploration planning due to: {str(e)}',
+            'scenario_used': scenario_name if 'scenario_name' in locals() else 'unknown'
+        }
+        return json.dumps(error_result)
+
+
+def generate_exploration_report_with_scenario(ranked_sites: gpd.GeoDataFrame, 
+                                            original_weights: Dict[str, float],
+                                            mcda_weights: Dict[str, float],
+                                            scenario_name: str,
+                                            adjustments: Dict[str, float],
+                                            max_seismic: float,
+                                            max_ecological: float, 
+                                            min_infrastructure: float) -> str:
+    """Generate comprehensive exploration planning report with scenario details."""
+    
+    report_lines = []
+    
+    # Header with scenario info
+    report_lines.append("# LOW-IMPACT EXPLORATION PLANNING REPORT")
+    report_lines.append("=" * 50)
+    report_lines.append(f"**Analysis Date:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+    report_lines.append(f"**Base Scenario:** {scenario_name}")
+    
+    if adjustments:
+        adj_text = ", ".join([f"{k} {'+' if v >= 0 else ''}{v:.2f}" for k, v in adjustments.items()])
+        report_lines.append(f"**Weight Adjustments:** {adj_text}")
+    else:
+        report_lines.append("**Weight Adjustments:** None")
+    
+    report_lines.append(f"**Planning Objective:** Minimize environmental impact while maintaining operational feasibility")
+    report_lines.append("")
+    
+    # Scenario weights breakdown
+    report_lines.append("## SCENARIO WEIGHT ANALYSIS")
+    report_lines.append(f"**Base Scenario ({scenario_name}):**")
+    for criterion, weight in original_weights.items():
+        report_lines.append(f"- {criterion.title()}: {weight:.1%}")
+    
+    if adjustments:
+        report_lines.append("")
+        report_lines.append("**After Adjustments:**")
+        final_weights = original_weights.copy()
+        for k, v in adjustments.items():
+            final_weights[k] = max(0, final_weights[k] + v)
+        
+        # Show normalized final weights
+        total = sum(final_weights.values())
+        for criterion, weight in final_weights.items():
+            normalized = weight / total if total > 0 else 0
+            change = ""
+            if criterion in adjustments:
+                if adjustments[criterion] > 0:
+                    change = " ⬆️"
+                elif adjustments[criterion] < 0:
+                    change = " ⬇️"
+            report_lines.append(f"- {criterion.title()}: {normalized:.1%}{change}")
+    
+    report_lines.append("")
+    report_lines.append("**MCDA Mapping:**")
+    for criterion, weight in mcda_weights.items():
+        report_lines.append(f"- {criterion.title()}: {weight:.1%}")
+    report_lines.append("")
+    
+    # Constraints section
+    report_lines.append("## CONSTRAINTS APPLIED")
+    report_lines.append(f"- Maximum Seismic Risk Score: {max_seismic} (lower is safer)")
+    report_lines.append(f"- Maximum Ecological Sensitivity Score: {max_ecological} (lower is less environmentally sensitive)")
+    report_lines.append(f"- Minimum Infrastructure Proximity Score: {min_infrastructure} (higher means closer to existing infrastructure)")
+    report_lines.append("")
+    
+    # Continue with the rest of the original report structure...
+    report_lines.append("## SCORING METHODOLOGY")
+    report_lines.append("**Suitability Score Calculation:**")
+    report_lines.append("- **Lower suitability scores = BETTER exploration sites**")
+    report_lines.append("- Seismic score: 0.0 (no earthquakes) to 1.0 (many earthquakes)")
+    report_lines.append("- Ecological score: 0.0 (low sensitivity) to 1.0 (high sensitivity)")
+    report_lines.append("- Infrastructure score: 0.0 (isolated) to 1.0 (well-connected)")
+    report_lines.append("- Combined using weighted average based on selected scenario")
+    report_lines.append("")
+    
+    # Results summary
+    report_lines.append("## RESULTS SUMMARY")
+    report_lines.append(f"- **Total Candidate Sites:** {len(ranked_sites)}")
+    best_score = ranked_sites['suitability_score'].min()
+    worst_score = ranked_sites['suitability_score'].max()
+    report_lines.append(f"- **Best Suitability Score:** {best_score:.3f} (lower is better)")
+    report_lines.append(f"- **Score Range:** {best_score:.3f} - {worst_score:.3f}")
+    report_lines.append("")
+    
+    # Top candidates table (keep existing table format)
+    report_lines.append("## TOP CANDIDATE LOCATIONS (Best to Worst)")
+    report_lines.append("| Rank | Cell ID | Coordinates | Suitability↓ | Seismic | Ecological | Infrastructure |")
+    report_lines.append("|------|---------|-------------|--------------|---------|------------|----------------|")
+    
+    for _, site in ranked_sites.head(10).iterrows():
+        coords = f"{site['center_lat']:.2f}°N, {abs(site['center_lon']):.2f}°W"
+        
+        if site['suitability_score'] <= 0.3:
+            quality = "⭐ EXCELLENT"
+        elif site['suitability_score'] <= 0.5:
+            quality = "✅ GOOD"
+        elif site['suitability_score'] <= 0.7:
+            quality = "⚠️ FAIR"
+        else:
+            quality = "❌ POOR"
+            
+        report_lines.append(
+            f"| {int(site['rank'])} {quality} | {int(site['cell_id'])} | {coords} | "
+            f"{site['suitability_score']:.3f} | {site['seismic_score']:.3f} | "
+            f"{site['ecological_score']:.3f} | {site['infrastructure_score']:.3f} |"
+        )
+    
+    report_lines.append("")
+    
+    # Scenario-specific recommendations
+    report_lines.append("## SCENARIO-SPECIFIC INSIGHTS")
+    
+    if scenario_name == "environment_focus":
+        report_lines.append("🌱 **Environment-Focused Analysis:**")
+        report_lines.append("   - Sites prioritize minimal ecological impact")
+        report_lines.append("   - Economic considerations are secondary")
+    elif scenario_name == "economic_focus":
+        report_lines.append("💰 **Economic-Focused Analysis:**")
+        report_lines.append("   - Sites prioritize proximity to existing infrastructure")
+        report_lines.append("   - Environmental impact balanced with cost considerations")
+    elif scenario_name == "safety_focus":
+        report_lines.append("🛡️ **Safety-Focused Analysis:**")
+        report_lines.append("   - Sites prioritize low seismic risk areas")
+        report_lines.append("   - Maximum emphasis on operational safety")
+    elif scenario_name == "balanced":
+        report_lines.append("⚖️ **Balanced Analysis:**")
+        report_lines.append("   - Sites represent optimal compromise across all factors")
+        report_lines.append("   - No single criterion dominates the selection")
+    
+    if adjustments:
+        report_lines.append("")
+        report_lines.append("**Weight Adjustment Impact:**")
+        for criterion, adjustment in adjustments.items():
+            if adjustment > 0:
+                report_lines.append(f"   - Increased emphasis on {criterion} ({adjustment:+.2f})")
+            elif adjustment < 0:
+                report_lines.append(f"   - Reduced emphasis on {criterion} ({adjustment:+.2f})")
+    
+    report_lines.append("")
+    
+    # Strategic recommendations (keep existing)
+    avg_ecological = ranked_sites.head(10)['ecological_score'].mean()
+    avg_seismic = ranked_sites.head(10)['seismic_score'].mean()
+    
+    report_lines.append("## ENVIRONMENTAL IMPACT ASSESSMENT")
+    report_lines.append(f"- **Average Ecological Sensitivity (Top 10):** {avg_ecological:.3f}")
+    report_lines.append(f"- **Average Seismic Risk (Top 10):** {avg_seismic:.3f}")
+    
+    if avg_ecological < 0.3 and avg_seismic < 0.3:
+        impact_level = "LOW IMPACT (Excellent for sustainable exploration)"
+    elif avg_ecological < 0.5 and avg_seismic < 0.5:
+        impact_level = "MEDIUM IMPACT (Acceptable with mitigation)"
+    else:
+        impact_level = "HIGH IMPACT (Requires careful consideration)"
+    
+    report_lines.append(f"- **Overall Environmental Impact Level:** {impact_level}")
+    report_lines.append("")
+    
+    # Recommendations
+    report_lines.append("## STRATEGIC RECOMMENDATIONS")
+    
+    if best_score < 0.3:
+        report_lines.append("🎯 **PROCEED WITH CONFIDENCE:** Excellent low-impact sites identified")
+        report_lines.append("   - Sites show low environmental risk and good operational feasibility")
+        report_lines.append("   - Standard environmental management protocols should suffice")
+    elif best_score < 0.5:
+        report_lines.append("⚠️ **PROCEED WITH CAUTION:** Good sites available but require enhanced monitoring")
+        report_lines.append("   - Implement enhanced environmental monitoring")
+        report_lines.append("   - Consider additional mitigation measures")
+    else:
+        report_lines.append("🔍 **DETAILED ASSESSMENT REQUIRED:** Sites available but with elevated risks")
+        report_lines.append("   - Conduct comprehensive environmental impact assessments")
+        report_lines.append("   - Develop robust mitigation strategies")
+    
+    report_lines.append("")
+    report_lines.append("### Immediate Next Steps:")
+    report_lines.append("1. Conduct detailed geological surveys for top 3 candidates")
+    report_lines.append("2. Initiate comprehensive environmental impact assessments")
+    report_lines.append("3. Begin early stakeholder engagement process")
+    report_lines.append("4. Develop site-specific environmental management plans")
+    
+    if adjustments:
+        report_lines.append("5. Validate weight adjustments with domain experts")
+    
+    report_lines.append("")
+    
+    # Footer
+    report_lines.append("---")
+    report_lines.append("*Report generated by Low-Impact Exploration Planner*")
+    report_lines.append(f"*Using {scenario_name} scenario with MCDA weights: {mcda_weights}*")
+    report_lines.append("*This analysis provides initial screening - detailed site surveys are essential*")
+    
+    return "\n".join(report_lines)
+
+
+
+
 
 def generate_site_explanations(top_sites: gpd.GeoDataFrame, 
                               weights: Dict[str, float], 
