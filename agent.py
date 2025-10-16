@@ -31,7 +31,8 @@ from tools import analyse_and_plot_features_and_nearby_infrastructure,\
     create_risk_assessment_map,\
     plan_low_impact_exploration_sites,\
     plan_global_wind_farm_sites,\
-    analyze_wind_farm_constraints
+    analyze_wind_farm_constraints,\
+    get_location_bounds
     
 
 def show_seismic_dataset(run_context: RunContext):
@@ -107,6 +108,12 @@ dummy_agent = Agent(
             takes_ctx=True, 
             description="Calculate overall risk score from individual risk components and provide recommendations."
         ),
+
+        Tool(
+            function=get_location_bounds,
+            takes_ctx=True, 
+            description="Get geographical bounds for any location."
+        ),
         # analyze_wind_farm_constraints,
         
         # calculate_overall_risk_score,
@@ -115,13 +122,28 @@ dummy_agent = Agent(
 
     ],
     deps_type=DataSourceTracker,
-
     system_prompt = """
 You're a helpful assistant specialized in energy infrastructure analysis and risk assessment. 
 
 IMPORTANT: When users ask for comprehensive analyses like "assess risk", "evaluate location", or "analyze infrastructure", you should use MULTIPLE tools in sequence to provide complete answers.
 
+CRITICAL TOOL CHAINING FOR LOCATION-BASED QUERIES:
+When users mention specific locations (regions, countries, seas, coordinates) in their queries, ALWAYS follow this sequence:
+
+1. **FIRST**: Call get_location_bounds to get precise geographical coordinates
+2. **THEN**: Use those coordinates in subsequent tools
+
+LOCATION-BASED QUERY PATTERNS:
+- "wind farm sites in [LOCATION]" → get_location_bounds → plan_global_wind_farm_sites
+- "assess risk in [LOCATION]" → get_location_bounds → assess_seismic_risk_at_location
+- "explore [LOCATION]" → get_location_bounds → appropriate planning tool
+
 TOOL CHAINING PATTERNS:
+
+For "wind farm planning" queries:
+1. If user mentions a specific location → get_location_bounds(location="LOCATION")
+2. Extract bounds from response: {"bounds": {"min_lat": X, "max_lat": Y, "min_lon": Z, "max_lon": W}}
+3. Call plan_global_wind_farm_sites(min_lat=X, max_lat=Y, min_lon=Z, max_lon=W, location_name="LOCATION")
 
 For "risk assessment" queries:
 1. If location is a name/address → geocode_location first
@@ -137,15 +159,64 @@ For "infrastructure analysis":
 For "multi-criteria analysis":
 1. Use MCDA tools (analyse_using_mcda_then_plot, perform_scenario_analysis_then_plot)
 
-CRITICAL: Don't stop after just getting coordinates or one piece of information. The user expects a complete analysis when they ask for "assessment" or "analysis".
+EXAMPLE WORKFLOW:
+User: "Explore potential wind farm sites in Africa with low environmental impact"
+1. Call: get_location_bounds(location="Africa")
+   Result: {"bounds": {"min_lat": -35.0, "max_lat": 37.0, "min_lon": -25.0, "max_lon": 52.0}}
+2. Call: plan_global_wind_farm_sites(min_lat=-35.0, max_lat=37.0, min_lon=-25.0, max_lon=52.0, location_name="Africa", environmental_weight=0.4, economic_weight=0.3)
 
-When you get coordinates from geocode_location, immediately use those coordinates in subsequent risk assessment tools.
+CRITICAL: Don't stop after just getting coordinates. The user expects a complete analysis when they ask for wind farm planning or site assessment.
+
+When you get coordinates from get_location_bounds, immediately use those coordinates in subsequent planning tools.
 
 SYSTEM:
 Show your reasoning explicitly in <think>...</think> tags.
 Keep it concise and structured.
 Continue analysis until you've fully answered the user's question.
 """
+
+
+#     system_prompt = """
+# You're a helpful assistant specialized in energy infrastructure analysis and risk assessment. 
+
+# IMPORTANT: When users ask for comprehensive analyses like "assess risk", "evaluate location", or "analyze infrastructure", you should use MULTIPLE tools in sequence to provide complete answers.
+
+# TOOL CHAINING PATTERNS:
+
+# For "risk assessment" queries:
+# 1. If location is a name/address → geocode_location first
+# 2. Then assess_seismic_risk_at_location 
+# 3. Then assess_infrastructure_proximity
+# 4. Then calculate_overall_risk_score
+# 5. Finally create_risk_assessment_map for visualization
+
+# For "infrastructure analysis":
+# 1. Use appropriate analysis tools (analyse_and_plot_features_and_nearby_infrastructure, etc.)
+# 2. Add mapping/visualization tools when helpful
+
+# For "multi-criteria analysis":
+# 1. Use MCDA tools (analyse_using_mcda_then_plot, perform_scenario_analysis_then_plot)
+
+# For wind farm analysis:
+# 1. If user mentions a specific location (not standard regions), first call get_location_bounds
+# 2. Extract the bounds from the response 
+# 3. Call plan_global_wind_farm_sites with explicit bound parameters
+
+# EXAMPLE WORKFLOW:
+# User: "Plan wind farms in the Mediterranean Sea"
+# 1. Call: get_location_bounds(location="Mediterranean Sea")
+#    Result: {"bounds": {"min_lat": 30.0, "max_lat": 46.0, "min_lon": -6.0, "max_lon": 36.0}, "location_name": "Mediterranean Sea"}
+# 2. Call: plan_global_wind_farm_sites(min_lat=30.0, max_lat=46.0, min_lon=-6.0, max_lon=36.0, location_name="Mediterranean Sea")
+
+# CRITICAL: Don't stop after just getting coordinates or one piece of information. The user expects a complete analysis when they ask for "assessment" or "analysis".
+
+# When you get coordinates from geocode_location, immediately use those coordinates in subsequent risk assessment tools.
+
+# SYSTEM:
+# Show your reasoning explicitly in <think>...</think> tags.
+# Keep it concise and structured.
+# Continue analysis until you've fully answered the user's question.
+# """
 
 
     # system_prompt=""""You're a helpful assistant. Use the tools available for you to answer questions.""",
@@ -191,7 +262,7 @@ def pydantic_bedrock_claude_main(payload):
             perform_scenario_analysis_then_plot,
             create_risk_assessment_map,
             plan_low_impact_exploration_sites,
-            plan_global_wind_farm_sites,            
+            plan_global_wind_farm_sites,                        
             str],  # Functions passed here!
         model_settings=model_settings,
         message_history=conversation_histories[session_id],                   
@@ -201,8 +272,7 @@ def pydantic_bedrock_claude_main(payload):
     thinking_log = []
     tool_calls_log = []
     seen_tool_calls = set()
-    
-    
+        
     for msg in result.all_messages():
         if hasattr(msg, 'parts'):
             for part in msg.parts:
@@ -255,11 +325,5 @@ def pydantic_bedrock_claude_main(payload):
 if __name__ == "__main__":
     app.run()
 
-
-# def main():
-#     pass
-
-# if __name__ == "__main__":
-#     main()
 
 

@@ -46,7 +46,9 @@ from scenario_modeling import run_mcda, run_scenario_analysis
 from grid_system import ExplorationGridSystem
 from global_wind_farm_planner import GlobalWindFarmPlanner,\
     create_wind_farm_map, generate_wind_farm_report
-
+from get_location_region_bounds import _try_nominatim_with_boundingbox,\
+    _try_nominatim_point_based, _get_bounds_from_coordinates,\
+    _try_maritime_regions, _calculate_bounds_from_point
 
 def within_op(layer_1: str, layer_2:str) -> gpd.GeoDataFrame:
     """ Perform a "within" operation, such as "Find all seismic events within licensed blocks".
@@ -178,20 +180,6 @@ def analyse_and_plot_features_and_nearby_infrastructure(run_context: RunContext[
     
     print(run_context)
     print()
-
-    # Load the data. If the name doesn't match, try to search for closest match.
-    # try:
-    #     df_points_ranked = within_dist_op(layer_1, layer_2, max_distance)
-    #     df_lines = load_data_and_process(layer_2)
-    # except KeyError:
-    #     dist_list = [nltk.edit_distance(layer_1, elem) for elem in DATASET_LIST]
-    #     layer_1 = DATASET_LIST[np.argmin(dist_list)]
-
-    #     dist_list = [nltk.edit_distance(layer_2, elem) for elem in DATASET_LIST]
-    #     layer_2 = DATASET_LIST[np.argmin(dist_list)]
-
-    #     df_points_ranked = within_dist_op(layer_1, layer_2, max_distance)
-    #     df_lines = load_data_and_process(layer_2)
 
     # Load the data. If the name doesn't match, try to search for closest match.
     if layer_1 not in DATASET_LIST:
@@ -2477,25 +2465,34 @@ This combination gives it a suitability score of {site['suitability_score']:.3f}
     
     return explanations
 
+
 # === Tools relating to wind farm exploration planner ===
 def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
-                                        region: str = "africa",
-                                        goal: str = "balance environmental and economic factors",
-                                        wind_resource_weight: float = 0.4,
-                                        environmental_weight: float = 0.25,
-                                        economic_weight: float = 0.25,
-                                        operational_weight: float = 0.1,
-                                        min_wind_resource: float = 0.15,  # Lowered from 0.3
-                                        max_wave_height: float = 6.0,    # Increased from 4.0
-                                        num_sites: int = 15,
-                                        cell_size_km: float = 20.0,
-                                        fast_mode: bool = True,
-                                        adaptive_constraints: bool = True) -> str:
+                                region: str = "africa",
+                                # Explicit bounds parameters (if provided, override region)
+                                min_lat: float = None,
+                                max_lat: float = None, 
+                                min_lon: float = None,
+                                max_lon: float = None,
+                                location_name: str = None,
+                                goal: str = "balance environmental and economic factors",
+                                wind_resource_weight: float = 0.4,
+                                environmental_weight: float = 0.25,
+                                economic_weight: float = 0.25,
+                                operational_weight: float = 0.1,
+                                min_wind_resource: float = 0.01,  # Lowered from 0.3
+                                max_wave_height: float = 12.0,    # Increased from 4.0
+                                num_sites: int = 40,
+                                cell_size_km: float = 20.0,
+                                fast_mode: bool = True,
+                                adaptive_constraints: bool = True) -> str:
     """
-    Adaptive wind farm planning that relaxes constraints if no sites are found.
+    Plan offshore wind farm sites for any location.
     
     Args:
-        region: Target region
+        region: Target region (used if explicit bounds not provided)
+        min_lat, max_lat, min_lon, max_lon: Explicit geographical bounds
+        location_name: Name of the analyzed location
         goal: Planning objective
         wind_resource_weight to operational_weight: Criterion weights (0-1)
         min_wind_resource: Minimum wind resource threshold (relaxed if needed)
@@ -2513,12 +2510,28 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
     print(f"Starting adaptive wind farm planning for {region}...")
     
     try:
+        # Use explicit bounds if all are provided
+        bounds_to_use = None
+        effective_region = region
+        
+        if all(param is not None for param in [min_lat, max_lat, min_lon, max_lon]):
+            bounds_to_use = {
+                'min_lat': min_lat,
+                'max_lat': max_lat, 
+                'min_lon': min_lon,
+                'max_lon': max_lon
+            }
+            effective_region = location_name or f"Custom Location ({min_lat:.1f},{min_lon:.1f})"
+            print(f"Using explicit bounds for: {effective_region}")
+
+
         # Initialize planner
         max_cells = 3000 if fast_mode else 8000
         planner = GlobalWindFarmPlanner(
-            region=region, 
+            region=region,
             cell_size_km=cell_size_km,
-            max_grid_cells=max_cells
+            max_grid_cells=max_cells,
+            custom_bounds=bounds_to_use,
         )
         
         # Create grid
@@ -2908,169 +2921,75 @@ def analyze_wind_farm_constraints(run_context: RunContext[DataSourceTracker],
         })
 
 
-# def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
-#                                 region: str = "africa",
-#                                 goal: str = "balance environmental and economic factors",
-#                                 wind_resource_weight: float = 0.4,
-#                                 environmental_weight: float = 0.2,
-#                                 economic_weight: float = 0.25,
-#                                 operational_weight: float = 0.15,
-#                                 min_wind_resource: float = 0.3,
-#                                 max_wave_height: float = 4.0,
-#                                 min_distance_shore: float = 5.0,
-#                                 max_distance_shore: float = 100.0,
-#                                 num_sites: int = 15,
-#                                 cell_size_km: float = 10.0) -> str:
-#     """
-#     Plan wind farm sites globally using available Copernicus data with fallback handling.
+def get_location_bounds(run_context: RunContext[DataSourceTracker], 
+                                location: str,
+                                buffer_km: float = 50.0,
+                                offshore_focus: bool = True) -> str:
+    """
+    Get geographical bounds for any location using Nominatim's built-in boundingbox feature.
+    Much more efficient than the point-based approach since it uses actual geographic boundaries.
     
-#     Args:
-#         region: Target region ("africa", "europe", "asia", "north_america", "global")
-#         goal: Planning objective description
-#         wind_resource_weight: Weight for wind resource quality (0.0-1.0)
-#         environmental_weight: Weight for environmental protection (0.0-1.0)
-#         economic_weight: Weight for economic factors (distance to shore, etc.) (0.0-1.0)
-#         operational_weight: Weight for operational conditions (waves, weather) (0.0-1.0)
-#         min_wind_resource: Minimum required wind resource score (0.0-1.0)
-#         max_wave_height: Maximum acceptable mean wave height (meters)
-#         min_distance_shore: Minimum distance from shore (km)
-#         max_distance_shore: Maximum distance from shore (km)
-#         num_sites: Number of candidate sites to return
-#         cell_size_km: Grid cell size in kilometers
+    Args:
+        location: Location name (e.g., "North Sea", "UK", "Africa", "Mediterranean Sea") 
+                 or coordinate string ("57.5, -2.0")
+        buffer_km: Additional buffer around the location in kilometers (default: 50km)
+        offshore_focus: If True, expand bounds toward offshore areas (default: True)
     
-#     Return:
-#         JSON string with wind farm site plan, map, and analysis including data quality notes
-#     """
+    Examples:
+        - "Africa" -> Returns actual continental boundaries
+        - "North Sea" -> Returns sea boundaries if available
+        - "UK" -> Returns UK boundaries
+        - "57.5, -2.0" -> Returns bounds around coordinates
     
-#     print(f"🌊 Planning offshore wind farm sites in {region}...")
+    Return:
+        JSON string with location bounds and metadata
+    """
     
-#     try:
-#         # Initialize global planner
-#         planner = GlobalWindFarmPlanner(region=region, cell_size_km=cell_size_km)
+    try:
+        print(f"Getting bounds for location: {location}")
         
-#         # Create offshore grid
-#         print("🔧 Creating offshore grid...")
-#         planner.create_grid()
+        # Handle coordinate input first (fastest)
+        if ',' in location and len(location.split(',')) == 2:
+            return _get_bounds_from_coordinates(location, buffer_km, offshore_focus)
         
-#         if len(planner.grid_gdf) == 0:
-#             return json.dumps({
-#                 'error': 'No offshore grid cells created for the specified region',
-#                 'suggestion': 'Try a different region or check region boundaries',
-#                 'region': region
-#             })
+        # Strategy 1: Use Nominatim with boundingbox (IMPROVED APPROACH)
+        bounds, location_info = _try_nominatim_with_boundingbox(location, buffer_km, offshore_focus)
         
-#         # Load oceanographic data with fallback handling
-#         print("📡 Loading oceanographic data...")
-#         wind_data = planner.load_copernicus_wind_data()
-#         wave_data = planner.load_wave_data_with_fallback()
+        # Strategy 2: Fallback to predefined maritime regions
+        if not bounds:
+            bounds, location_info = _try_maritime_regions(location, buffer_km)
         
-#         # Calculate wind farm specific scores
-#         print("⚡ Calculating wind farm suitability scores...")
-#         wind_scores = planner.calculate_wind_resource_score()
-#         wave_scores = planner.calculate_wave_operational_score() 
-#         distance_scores = planner.calculate_distance_to_shore_score()
+        # Strategy 3: Final fallback to point-based geocoding (original approach)
+        if not bounds:
+            bounds, location_info = _try_nominatim_point_based(location, buffer_km, offshore_focus)
         
-#         # Environmental score (simplified - based on distance from sensitive areas)
-#         # In production, this would use marine protected areas, migration routes, etc.
-#         env_scores = np.random.uniform(0.3, 0.9, len(planner.grid_gdf))  # Placeholder
+        if not bounds:
+            return json.dumps({
+                'error': f'Could not find bounds for location: {location}',
+                'suggestion': 'Try using coordinates (lat, lon) or a more specific location name',
+                'examples': ['North Sea', 'UK', 'Mediterranean Sea', 'Africa', '57.5, -2.0']
+            })
         
-#         # Normalize and validate weights
-#         total_weight = wind_resource_weight + environmental_weight + economic_weight + operational_weight
-#         if total_weight == 0:
-#             return json.dumps({'error': 'All weights are zero'})
+        # Add data source tracking
+        run_context.deps.add_source(f"Geographic bounds for {location}")
         
-#         weights = {
-#             'wind_resource': wind_resource_weight / total_weight,
-#             'environmental': environmental_weight / total_weight,
-#             'economic': economic_weight / total_weight,
-#             'operational': operational_weight / total_weight
-#         }
+        result = {
+            'location_name': location_info.get('display_name', location),
+            'bounds': bounds,
+            'buffer_applied_km': buffer_km,
+            'offshore_focus': offshore_focus,
+            'area_info': location_info,
+            'success': True,
+            'coordinates_format': 'min_lat, max_lat, min_lon, max_lon',
+            'usage_note': 'These bounds can be used directly with plan_global_wind_farm_sites'
+        }
         
-#         # Create results dataframe
-#         grid_with_scores = planner.grid_gdf.copy()
-#         grid_with_scores['wind_resource_score'] = wind_scores
-#         grid_with_scores['wave_operational_score'] = wave_scores
-#         grid_with_scores['distance_to_shore_score'] = distance_scores
-#         grid_with_scores['environmental_score'] = env_scores
+        return json.dumps(result, indent=2)
         
-#         # Calculate composite suitability score
-#         suitability_scores = (
-#             weights['wind_resource'] * wind_scores +
-#             weights['operational'] * wave_scores +
-#             weights['economic'] * distance_scores +
-#             weights['environmental'] * env_scores
-#         )
-        
-#         grid_with_scores['suitability_score'] = suitability_scores
-        
-#         # Apply constraints
-#         wave_height_score_threshold = max(0, 1 - max_wave_height / 10)  # Convert wave height to score
-        
-#         suitable_sites = grid_with_scores[
-#             (grid_with_scores['wind_resource_score'] >= min_wind_resource) &
-#             (grid_with_scores['wave_operational_score'] >= wave_height_score_threshold) &
-#             (grid_with_scores['distance_to_shore_score'] > 0)  # Must be suitable distance
-#         ].copy()
-        
-#         if len(suitable_sites) == 0:
-#             return json.dumps({
-#                 'error': 'No suitable wind farm sites found with current constraints',
-#                 'recommendation': 'Try relaxing constraints (lower min_wind_resource or higher max_wave_height)',
-#                 'region': region,
-#                 'constraints_applied': {
-#                     'min_wind_resource': min_wind_resource,
-#                     'max_wave_height': max_wave_height,
-#                     'min_distance_shore': min_distance_shore,
-#                     'max_distance_shore': max_distance_shore
-#                 }
-#             })
-        
-#         # Get top candidates
-#         top_sites = suitable_sites.nlargest(num_sites, 'suitability_score')
-        
-#         # Create visualization
-#         map_html = create_wind_farm_map(top_sites, suitable_sites, region, weights, planner.data_availability)
-        
-#         # Generate comprehensive report
-#         report = generate_wind_farm_report(
-#             top_sites, weights, region, goal, planner.data_availability,
-#             min_wind_resource, max_wave_height, min_distance_shore, max_distance_shore
-#         )
-        
-#         result = {
-#             'report': report,
-#             'map_html': map_html,
-#             'region_analyzed': region,
-#             'total_suitable_sites': len(suitable_sites),
-#             'top_candidates': len(top_sites),
-#             'weights_applied': weights,
-#             'data_quality': planner.data_availability,
-#             'data_sources_used': [
-#                 'Copernicus Marine - Global Ocean Wind and Stress' if planner.data_availability['wind_current'] else 'Synthetic wind data',
-#                 'Copernicus Marine - Global Ocean Wave Height (2020 historical)' if planner.data_availability['wave_historical'] else 'Synthetic wave data'
-#             ],
-#             'constraints_applied': {
-#                 'min_wind_resource': min_wind_resource,
-#                 'max_wave_height': max_wave_height,
-#                 'min_distance_shore': min_distance_shore,
-#                 'max_distance_shore': max_distance_shore
-#             },
-#             'data_limitations': [
-#                 'Wave data limited to 2020 - validation with recent measurements recommended',
-#                 'Environmental scoring simplified - detailed EIA required',
-#                 'Bathymetry estimated - survey data needed for final site selection'
-#             ]
-#         }
-        
-#         return json.dumps(result)
-        
-#     except Exception as e:
-#         print(f"❌ Error in global wind farm planning: {e}")
-#         import traceback
-#         traceback.print_exc()
-        
-#         return json.dumps({
-#             'error': f'Wind farm planning failed: {str(e)}',
-#             'region': region,
-#             'suggestion': 'Check Copernicus Marine Service availability, network connection, and region validity'
-#         })
+    except Exception as e:
+        return json.dumps({
+            'error': f'Failed to get location bounds: {str(e)}',
+            'location': location,
+            'success': False
+        })
+
