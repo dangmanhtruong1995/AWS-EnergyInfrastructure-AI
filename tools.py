@@ -1,3 +1,4 @@
+import os 
 from os.path import join as pjoin
 from dataclasses import dataclass, field
 from typing import Set, Union, Dict, List
@@ -24,15 +25,11 @@ from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 import folium
 import matplotlib.colors as mcolors
-from folium.plugins import MarkerCluster, BeautifyIcon
+from folium.plugins import MarkerCluster, BeautifyIcon, HeatMap
 
 import pydantic_ai
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelRequest, ToolReturnPart
-
-import os 
-from os.path import join as pjoin
-import boto3
 
 # from config import BASE_PATH, DATASETS, DATASET_LIST, DATASET_LEGEND_DICT
 from config import DATASET_LEGEND_DICT, DATASET_LIST, SCENARIOS
@@ -1878,214 +1875,478 @@ def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker]
         return json.dumps(error_result)
 
 
+# def create_exploration_map(top_sites: gpd.GeoDataFrame, 
+#                           all_grid: gpd.GeoDataFrame, 
+#                           weights: Dict[str, float]) -> str:
+#     """Create map with proper UK geographic context and better centering."""
+    
+#     try:
+#         print(f"DEBUG: Creating UK-centered map with {len(top_sites)} top sites and {len(all_grid)} grid cells")
+        
+#         # OPTIMIZATION: Sample grid cells if too many
+#         if len(all_grid) > 10000:
+#             sample_rate = max(1, len(all_grid) // 5000)
+#             sampled_grid = all_grid.iloc[::sample_rate].copy()
+#             print(f"DEBUG: Sampled {len(sampled_grid)} cells from {len(all_grid)} total")
+#         else:
+#             sampled_grid = all_grid.copy()
+        
+#         # FIXED: Better UK-centered coordinates and zoom
+#         # UK center coordinates that show both land and offshore areas
+#         uk_center_lat = 55.5  # Slightly north to show Scottish waters
+#         uk_center_lon = -2.0   # Centered on UK longitude
+        
+#         print(f"DEBUG: UK-centered map at {uk_center_lat}, {uk_center_lon}")
+        
+#         # Create map with better tiles that show land boundaries
+#         m = folium.Map(
+#             location=[uk_center_lat, uk_center_lon],
+#             zoom_start=5,  # Reduced zoom to show more context
+#             tiles="OpenStreetMap",  # Changed from CartoDB to show land better
+#             prefer_canvas=True  # Better performance for many polygons
+#         )
+        
+#         # Add alternative tile layer that shows land/water contrast better
+#         folium.TileLayer(
+#             tiles="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+#             attr="OpenStreetMap",
+#             name="OpenStreetMap",
+#             overlay=False,
+#             control=True
+#         ).add_to(m)
+        
+#         # Color mapping with higher contrast
+#         def get_suitability_color(score, max_score):
+#             if max_score == 0:
+#                 return '#CCCCCC'
+#             normalized_score = score / max_score
+#             if normalized_score <= 0.33:
+#                 return '#006400'  # Dark Green (more visible)
+#             elif normalized_score <= 0.66:
+#                 return '#FF8C00'  # Dark Orange
+#             else:
+#                 return '#FF0000'  # Red
+        
+#         # Add background grid with better visibility
+#         max_score = sampled_grid['suitability_score'].max()
+#         print(f"DEBUG: Adding {len(sampled_grid)} background grid cells")
+        
+#         for idx, cell in sampled_grid.iterrows():
+#             try:
+#                 color = get_suitability_color(cell['suitability_score'], max_score)
+                
+#                 if cell.geometry.geom_type == 'Polygon':
+#                     exterior_coords = list(cell.geometry.exterior.coords)
+#                     folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+                    
+#                     # More visible styling
+#                     folium.Polygon(
+#                         locations=folium_coords,
+#                         color=color,
+#                         weight=1.5,  # Slightly thicker borders
+#                         opacity=0.7,  # Higher opacity
+#                         fillColor=color,
+#                         fillOpacity=0.5,  # Higher fill opacity
+#                         popup=f"Cell {cell.get('cell_id', idx)}<br>Score: {cell['suitability_score']:.3f}",
+#                         tooltip=f"Cell {cell.get('cell_id', idx)}"
+#                     ).add_to(m)
+#             except:
+#                 continue
+        
+#         # Add top candidates with very high visibility
+#         print(f"DEBUG: Adding {len(top_sites)} top candidates")
+#         for idx, site in top_sites.iterrows():
+#             try:
+#                 if site.geometry.geom_type == 'Polygon':
+#                     exterior_coords = list(site.geometry.exterior.coords)
+#                     folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+                    
+#                     popup_html = f"""
+#                     <b>🎯 TOP EXPLORATION SITE #{int(site.get('rank', idx+1))}</b><br>
+#                     <b>Suitability Score:</b> {site.get('suitability_score', 0):.3f} (EXCELLENT)<br>
+#                     <b>Coordinates:</b> {site.get('center_lat', 0):.3f}°N, {abs(site.get('center_lon', 0)):.3f}°W<br>
+#                     <b>Seismic Risk:</b> {site.get('seismic_score', 0):.3f}<br>
+#                     <b>Ecological Sensitivity:</b> {site.get('ecological_score', 0):.3f}<br>
+#                     <b>Infrastructure Proximity:</b> {site.get('infrastructure_score', 0):.3f}
+#                     """
+                    
+#                     # Very visible candidate highlighting
+#                     folium.Polygon(
+#                         locations=folium_coords,
+#                         popup=folium.Popup(popup_html, max_width=300),
+#                         tooltip=f"🎯 EXPLORATION SITE #{int(site.get('rank', idx+1))}",
+#                         color='#00FF00',  # Bright green
+#                         weight=4,  # Thick border
+#                         opacity=1.0,
+#                         fillColor='#32CD32',  # Lime green
+#                         fillOpacity=0.8
+#                     ).add_to(m)
+                    
+#                     # Large visible marker
+#                     folium.Marker(
+#                         location=[site.get('center_lat', 0), site.get('center_lon', 0)],
+#                         popup=popup_html,
+#                         tooltip=f"🎯 SITE #{int(site.get('rank', idx+1))}",
+#                         icon=folium.Icon(
+#                             color='green', 
+#                             icon='star',
+#                             icon_size=(15, 15)  # Larger icon
+#                         )
+#                     ).add_to(m)
+#             except:
+#                 continue
+        
+#         # Add UK coastline reference points
+#         try:
+#             # Add markers for major UK cities for geographic reference
+#             uk_cities = [
+#                 {"name": "London", "lat": 51.5074, "lon": -0.1278},
+#                 {"name": "Edinburgh", "lat": 55.9533, "lon": -3.1883},
+#                 {"name": "Aberdeen", "lat": 57.1497, "lon": -2.0943},
+#                 {"name": "Newcastle", "lat": 54.9783, "lon": -1.6178}
+#             ]
+            
+#             for city in uk_cities:
+#                 folium.CircleMarker(
+#                     location=[city["lat"], city["lon"]],
+#                     radius=5,
+#                     popup=f"🏙️ {city['name']}",
+#                     color='black',
+#                     fillColor='yellow',
+#                     fillOpacity=0.8,
+#                     tooltip=city["name"]
+#                 ).add_to(m)
+#         except:
+#             pass
+        
+#         # Add fewer existing wells but make them more visible
+#         try:
+#             df_wells = load_data_and_process("wells")
+#             wells_to_show = min(15, len(df_wells))  # Reduced number
+#             for idx, well in df_wells.head(wells_to_show).iterrows():
+#                 if hasattr(well.geometry, 'y'):
+#                     folium.CircleMarker(
+#                         location=[well.geometry.y, well.geometry.x],
+#                         radius=4,  # Larger
+#                         popup=f"⚙️ Existing Well: {well.get('Name', 'Unknown')}",
+#                         color='navy',
+#                         fillColor='cyan',  # More visible color
+#                         fillOpacity=0.9,
+#                         tooltip="Existing Infrastructure"
+#                     ).add_to(m)
+#         except:
+#             pass
+        
+#         # Enhanced legend with geographic context
+#         high_count = len(sampled_grid[sampled_grid['suitability_score'] <= max_score * 0.33]) if max_score > 0 else 0
+#         med_count = len(sampled_grid[(sampled_grid['suitability_score'] > max_score * 0.33) & 
+#                                    (sampled_grid['suitability_score'] <= max_score * 0.66)]) if max_score > 0 else 0
+#         low_count = len(sampled_grid[sampled_grid['suitability_score'] > max_score * 0.66]) if max_score > 0 else 0
+        
+#         legend_html = f'''
+#         <div style="position: fixed; top: 10px; right: 10px; width: 320px; height: 280px; 
+#                     background-color: white; border:2px solid grey; z-index:9999; 
+#                     font-size:12px; padding: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
+#         <h4 style="margin-top:0; color:#2E8B57;">🧭 UK Low-Impact Exploration Planner</h4>
+#         <p style="margin:5px 0; font-size:10px;"><b>Analysis Area:</b> UK Continental Shelf</p>
+        
+#         <p style="margin:8px 0; font-weight:bold;">Grid Cell Suitability:</p>
+#         <p style="margin:2px 0;"><span style="background-color:#006400; color:white; padding:2px 6px;">⬛</span> High Suitability ({high_count} cells)</p>
+#         <p style="margin:2px 0;"><span style="background-color:#FF8C00; color:white; padding:2px 6px;">⬛</span> Medium Suitability ({med_count} cells)</p>
+#         <p style="margin:2px 0;"><span style="background-color:#FF0000; color:white; padding:2px 6px;">⬛</span> Low Suitability ({low_count} cells)</p>
+        
+#         <p style="margin:8px 0; font-weight:bold;">Features:</p>
+#         <p style="margin:2px 0;"><span style="background-color:#00FF00; color:black; padding:2px 6px;">⬛</span> 🎯 TOP CANDIDATES ({len(top_sites)})</p>
+#         <p style="margin:2px 0;">⭐ Exploration Sites</p>
+#         <p style="margin:2px 0;">🔵 Existing Wells</p>
+#         <p style="margin:2px 0;">🏙️ UK Cities (Reference)</p>
+        
+#         <p style="margin:8px 0 0 0; font-size:10px; font-style:italic;">
+#         Showing {len(sampled_grid)}/{len(all_grid)} grid cells<br>
+#         Green offshore areas = Best for exploration
+#         </p>
+#         </div>
+#         '''
+#         m.get_root().html.add_child(folium.Element(legend_html))
+        
+#         # Add layer control
+#         folium.LayerControl().add_to(m)
+        
+#         map_html = m.get_root().render()
+#         map_size_mb = len(map_html) / (1024 * 1024)
+#         print(f"DEBUG: Generated UK-centered map HTML size: {map_size_mb:.2f} MB")
+        
+#         return map_html
+        
+#     except Exception as e:
+#         print(f"ERROR in UK-centered map creation: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         return f'<div style="height: 400px; color: red; text-align: center; padding-top: 150px;">Map creation failed: {str(e)}</div>'
+
+
 def create_exploration_map(top_sites: gpd.GeoDataFrame, 
                           all_grid: gpd.GeoDataFrame, 
                           weights: Dict[str, float]) -> str:
-    """Create map with proper UK geographic context and better centering."""
+    """Create map using strategic spacing to show all data without clutter."""
     
     try:
-        print(f"DEBUG: Creating UK-centered map with {len(top_sites)} top sites and {len(all_grid)} grid cells")
+        print(f"DEBUG: Creating spaced visualization with {len(top_sites)} top sites and {len(all_grid)} grid cells")
         
-        # OPTIMIZATION: Sample grid cells if too many
-        if len(all_grid) > 10000:
-            sample_rate = max(1, len(all_grid) // 5000)
-            sampled_grid = all_grid.iloc[::sample_rate].copy()
-            print(f"DEBUG: Sampled {len(sampled_grid)} cells from {len(all_grid)} total")
-        else:
-            sampled_grid = all_grid.copy()
+        # UK-centered coordinates
+        uk_center_lat = 55.5
+        uk_center_lon = -2.0
         
-        # FIXED: Better UK-centered coordinates and zoom
-        # UK center coordinates that show both land and offshore areas
-        uk_center_lat = 55.5  # Slightly north to show Scottish waters
-        uk_center_lon = -2.0   # Centered on UK longitude
-        
-        print(f"DEBUG: UK-centered map at {uk_center_lat}, {uk_center_lon}")
-        
-        # Create map with better tiles that show land boundaries
+        # Create map
         m = folium.Map(
             location=[uk_center_lat, uk_center_lon],
-            zoom_start=5,  # Reduced zoom to show more context
-            tiles="OpenStreetMap",  # Changed from CartoDB to show land better
-            prefer_canvas=True  # Better performance for many polygons
+            zoom_start=6,  # Slightly more zoomed for detail
+            tiles="OpenStreetMap"
         )
         
-        # Add alternative tile layer that shows land/water contrast better
+        # Add terrain layer
         folium.TileLayer(
-            tiles="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            attr="OpenStreetMap",
-            name="OpenStreetMap",
+            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/{z}/{y}/{x}",
+            attr="Esri World Terrain",
+            name="Terrain",
             overlay=False,
             control=True
         ).add_to(m)
         
-        # Color mapping with higher contrast
-        def get_suitability_color(score, max_score):
-            if max_score == 0:
-                return '#CCCCCC'
-            normalized_score = score / max_score
-            if normalized_score <= 0.33:
-                return '#006400'  # Dark Green (more visible)
-            elif normalized_score <= 0.66:
-                return '#FF8C00'  # Dark Orange
+        # STRATEGIC APPROACH: Show representative samples from each suitability category
+        max_score = all_grid['suitability_score'].max()
+        min_score = all_grid['suitability_score'].min()
+        
+        # Categorize all grid cells
+        def categorize_suitability(score, max_score, min_score):
+            if max_score == min_score:
+                return "moderate"
+            normalized = (score - min_score) / (max_score - min_score)
+            if normalized <= 0.2:
+                return "excellent"
+            elif normalized <= 0.4:
+                return "very_good" 
+            elif normalized <= 0.6:
+                return "moderate"
+            elif normalized <= 0.8:
+                return "poor"
             else:
-                return '#FF0000'  # Red
+                return "very_poor"
         
-        # Add background grid with better visibility
-        max_score = sampled_grid['suitability_score'].max()
-        print(f"DEBUG: Adding {len(sampled_grid)} background grid cells")
+        all_grid['category'] = all_grid['suitability_score'].apply(
+            lambda x: categorize_suitability(x, max_score, min_score)
+        )
         
-        for idx, cell in sampled_grid.iterrows():
-            try:
-                color = get_suitability_color(cell['suitability_score'], max_score)
-                
-                if cell.geometry.geom_type == 'Polygon':
-                    exterior_coords = list(cell.geometry.exterior.coords)
-                    folium_coords = [[lat, lon] for lon, lat in exterior_coords]
+        # Sample from each category to maintain representation while reducing clutter
+        category_samples = {}
+        sample_sizes = {
+            'excellent': min(500, len(all_grid[all_grid['category'] == 'excellent'])),
+            'very_good': min(400, len(all_grid[all_grid['category'] == 'very_good'])),
+            'moderate': min(800, len(all_grid[all_grid['category'] == 'moderate'])),  # Show more mediocre
+            'poor': min(300, len(all_grid[all_grid['category'] == 'poor'])),
+            'very_poor': min(200, len(all_grid[all_grid['category'] == 'very_poor']))
+        }
+        
+        for category, sample_size in sample_sizes.items():
+            category_data = all_grid[all_grid['category'] == category]
+            if len(category_data) > 0:
+                if len(category_data) > sample_size:
+                    # Stratified sampling across the geographic area
+                    category_samples[category] = category_data.sample(n=sample_size, random_state=42)
+                else:
+                    category_samples[category] = category_data
+        
+        # Define visual properties for each category
+        category_styles = {
+            'excellent': {'color': '#006400', 'size': 6, 'opacity': 0.8},
+            'very_good': {'color': '#32CD32', 'size': 5, 'opacity': 0.7},
+            'moderate': {'color': '#FFD700', 'size': 4, 'opacity': 0.6},  # Golden yellow for mediocre
+            'poor': {'color': '#FF8C00', 'size': 3, 'opacity': 0.6},
+            'very_poor': {'color': '#FF0000', 'size': 3, 'opacity': 0.7}
+        }
+        
+        # Add markers for each category
+        total_markers = 0
+        for category, data in category_samples.items():
+            style = category_styles[category]
+            
+            for idx, cell in data.iterrows():
+                try:
+                    lat = cell.get('center_lat', 0)
+                    lon = cell.get('center_lon', 0)
+                    score = cell.get('suitability_score', 0)
                     
-                    # More visible styling
-                    folium.Polygon(
-                        locations=folium_coords,
-                        color=color,
-                        weight=1.5,  # Slightly thicker borders
-                        opacity=0.7,  # Higher opacity
-                        fillColor=color,
-                        fillOpacity=0.5,  # Higher fill opacity
-                        popup=f"Cell {cell.get('cell_id', idx)}<br>Score: {cell['suitability_score']:.3f}",
-                        tooltip=f"Cell {cell.get('cell_id', idx)}"
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        popup=f"Suitability: {category.replace('_', ' ').title()}<br>Score: {score:.3f}<br>Cell: {cell.get('cell_id', idx)}",
+                        radius=style['size'],
+                        color='black',
+                        weight=0.5,
+                        fill=True,
+                        fill_opacity=style['opacity'],
+                        fill_color=style['color'],
+                        tooltip=f"{category.replace('_', ' ').title()}"
                     ).add_to(m)
-            except:
-                continue
+                    
+                    total_markers += 1
+                    
+                except Exception as e:
+                    continue
         
-        # Add top candidates with very high visibility
-        print(f"DEBUG: Adding {len(top_sites)} top candidates")
+        print(f"DEBUG: Added {total_markers} representative markers")
+        
+        # Add top candidates with prominent styling
         for idx, site in top_sites.iterrows():
             try:
-                if site.geometry.geom_type == 'Polygon':
-                    exterior_coords = list(site.geometry.exterior.coords)
-                    folium_coords = [[lat, lon] for lon, lat in exterior_coords]
-                    
-                    popup_html = f"""
-                    <b>🎯 TOP EXPLORATION SITE #{int(site.get('rank', idx+1))}</b><br>
-                    <b>Suitability Score:</b> {site.get('suitability_score', 0):.3f} (EXCELLENT)<br>
-                    <b>Coordinates:</b> {site.get('center_lat', 0):.3f}°N, {abs(site.get('center_lon', 0)):.3f}°W<br>
-                    <b>Seismic Risk:</b> {site.get('seismic_score', 0):.3f}<br>
-                    <b>Ecological Sensitivity:</b> {site.get('ecological_score', 0):.3f}<br>
-                    <b>Infrastructure Proximity:</b> {site.get('infrastructure_score', 0):.3f}
-                    """
-                    
-                    # Very visible candidate highlighting
-                    folium.Polygon(
-                        locations=folium_coords,
-                        popup=folium.Popup(popup_html, max_width=300),
-                        tooltip=f"🎯 EXPLORATION SITE #{int(site.get('rank', idx+1))}",
-                        color='#00FF00',  # Bright green
-                        weight=4,  # Thick border
-                        opacity=1.0,
-                        fillColor='#32CD32',  # Lime green
-                        fillOpacity=0.8
-                    ).add_to(m)
-                    
-                    # Large visible marker
-                    folium.Marker(
-                        location=[site.get('center_lat', 0), site.get('center_lon', 0)],
-                        popup=popup_html,
-                        tooltip=f"🎯 SITE #{int(site.get('rank', idx+1))}",
-                        icon=folium.Icon(
-                            color='green', 
-                            icon='star',
-                            icon_size=(15, 15)  # Larger icon
-                        )
-                    ).add_to(m)
-            except:
+                lat = site.get('center_lat', 0)
+                lon = site.get('center_lon', 0)
+                rank = site.get('rank', idx + 1)
+                score = site.get('suitability_score', 0)
+                
+                popup_html = f"""
+                <div style='width: 220px;'>
+                <h4 style='color: darkgreen; text-align: center;'>⭐ TOP EXPLORATION SITE</h4>
+                <b>Rank:</b> #{int(rank)}<br>
+                <b>Suitability Score:</b> {score:.3f}<br>
+                <b>Coordinates:</b> {lat:.3f}°N, {abs(lon):.3f}°W<br>
+                <hr>
+                <b>Risk Assessment:</b><br>
+                • Seismic: {site.get('seismic_score', 0):.3f}<br>
+                • Ecological: {site.get('ecological_score', 0):.3f}<br>
+                • Infrastructure: {site.get('infrastructure_score', 0):.3f}
+                </div>
+                """
+                
+                # Large prominent marker
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    popup=folium.Popup(popup_html, max_width=250),
+                    radius=12,
+                    color='gold',
+                    weight=3,
+                    fill=True,
+                    fill_opacity=0.9,
+                    fill_color='darkgreen',
+                    tooltip=f"⭐ TOP SITE #{int(rank)}"
+                ).add_to(m)
+                
+            except Exception as e:
                 continue
         
-        # Add UK coastline reference points
-        try:
-            # Add markers for major UK cities for geographic reference
-            uk_cities = [
-                {"name": "London", "lat": 51.5074, "lon": -0.1278},
-                {"name": "Edinburgh", "lat": 55.9533, "lon": -3.1883},
-                {"name": "Aberdeen", "lat": 57.1497, "lon": -2.0943},
-                {"name": "Newcastle", "lat": 54.9783, "lon": -1.6178}
-            ]
-            
-            for city in uk_cities:
-                folium.CircleMarker(
-                    location=[city["lat"], city["lon"]],
-                    radius=5,
-                    popup=f"🏙️ {city['name']}",
-                    color='black',
-                    fillColor='yellow',
-                    fillOpacity=0.8,
-                    tooltip=city["name"]
-                ).add_to(m)
-        except:
-            pass
+        # Add UK cities
+        uk_cities = [
+            {"name": "London", "lat": 51.5074, "lon": -0.1278},
+            {"name": "Edinburgh", "lat": 55.9533, "lon": -3.1883},
+            {"name": "Aberdeen", "lat": 57.1497, "lon": -2.0943},
+            {"name": "Newcastle", "lat": 54.9783, "lon": -1.6178}
+        ]
         
-        # Add fewer existing wells but make them more visible
+        for city in uk_cities:
+            folium.CircleMarker(
+                location=[city["lat"], city["lon"]],
+                radius=4,
+                popup=f"🏙️ {city['name']}",
+                color='black',
+                weight=2,
+                fill=True,
+                fill_opacity=0.9,
+                fill_color='white',
+                tooltip=city["name"]
+            ).add_to(m)
+        
+        # Minimal existing wells
         try:
             df_wells = load_data_and_process("wells")
-            wells_to_show = min(15, len(df_wells))  # Reduced number
-            for idx, well in df_wells.head(wells_to_show).iterrows():
+            wells_sample = df_wells.sample(n=min(15, len(df_wells)), random_state=42)
+            
+            for idx, well in wells_sample.iterrows():
                 if hasattr(well.geometry, 'y'):
                     folium.CircleMarker(
                         location=[well.geometry.y, well.geometry.x],
-                        radius=4,  # Larger
-                        popup=f"⚙️ Existing Well: {well.get('Name', 'Unknown')}",
+                        radius=2,
+                        popup=f"Existing Well: {well.get('Name', 'Unknown')}",
                         color='navy',
-                        fillColor='cyan',  # More visible color
-                        fillOpacity=0.9,
-                        tooltip="Existing Infrastructure"
+                        weight=1,
+                        fill=True,
+                        fill_opacity=0.7,
+                        fill_color='lightblue',
+                        tooltip="Infrastructure"
                     ).add_to(m)
         except:
             pass
         
-        # Enhanced legend with geographic context
-        high_count = len(sampled_grid[sampled_grid['suitability_score'] <= max_score * 0.33]) if max_score > 0 else 0
-        med_count = len(sampled_grid[(sampled_grid['suitability_score'] > max_score * 0.33) & 
-                                   (sampled_grid['suitability_score'] <= max_score * 0.66)]) if max_score > 0 else 0
-        low_count = len(sampled_grid[sampled_grid['suitability_score'] > max_score * 0.66]) if max_score > 0 else 0
+        # Enhanced legend showing actual representation
+        category_counts = {cat: len(data) for cat, data in category_samples.items()}
+        weights_display = ", ".join([f"{k}: {v:.0%}" for k, v in weights.items()])
         
         legend_html = f'''
-        <div style="position: fixed; top: 10px; right: 10px; width: 320px; height: 280px; 
-                    background-color: white; border:2px solid grey; z-index:9999; 
-                    font-size:12px; padding: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
-        <h4 style="margin-top:0; color:#2E8B57;">🧭 UK Low-Impact Exploration Planner</h4>
-        <p style="margin:5px 0; font-size:10px;"><b>Analysis Area:</b> UK Continental Shelf</p>
+        <div style="position: fixed; top: 10px; right: 10px; width: 320px; height: 350px; 
+                    background-color: rgba(255,255,255,0.96); border:2px solid #333; z-index:9999; 
+                    font-size:11px; padding: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+                    border-radius: 6px; font-family: Arial, sans-serif;">
+        <h4 style="margin-top:0; color:#2E8B57; text-align:center; font-size:14px; margin-bottom:10px;">
+        UK Low-Impact Exploration Planner</h4>
         
-        <p style="margin:8px 0; font-weight:bold;">Grid Cell Suitability:</p>
-        <p style="margin:2px 0;"><span style="background-color:#006400; color:white; padding:2px 6px;">⬛</span> High Suitability ({high_count} cells)</p>
-        <p style="margin:2px 0;"><span style="background-color:#FF8C00; color:white; padding:2px 6px;">⬛</span> Medium Suitability ({med_count} cells)</p>
-        <p style="margin:2px 0;"><span style="background-color:#FF0000; color:white; padding:2px 6px;">⬛</span> Low Suitability ({low_count} cells)</p>
+        <p style="margin:6px 0; font-weight:bold; font-size:12px;">Suitability Distribution:</p>
+        <div style="margin:3px 0;">
+            <span style="display:inline-block; width:10px; height:10px; background-color:#006400; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
+            <span style="font-size:10px;">Excellent ({category_counts.get('excellent', 0)} sites)</span>
+        </div>
+        <div style="margin:3px 0;">
+            <span style="display:inline-block; width:9px; height:9px; background-color:#32CD32; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
+            <span style="font-size:10px;">Very Good ({category_counts.get('very_good', 0)} sites)</span>
+        </div>
+        <div style="margin:3px 0;">
+            <span style="display:inline-block; width:8px; height:8px; background-color:#FFD700; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
+            <span style="font-size:10px;">Moderate ({category_counts.get('moderate', 0)} sites)</span>
+        </div>
+        <div style="margin:3px 0;">
+            <span style="display:inline-block; width:6px; height:6px; background-color:#FF8C00; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
+            <span style="font-size:10px;">Poor ({category_counts.get('poor', 0)} sites)</span>
+        </div>
+        <div style="margin:3px 0;">
+            <span style="display:inline-block; width:6px; height:6px; background-color:#FF0000; border:1px solid black; margin-right:5px; border-radius:50%;"></span>
+            <span style="font-size:10px;">Very Poor ({category_counts.get('very_poor', 0)} sites)</span>
+        </div>
         
-        <p style="margin:8px 0; font-weight:bold;">Features:</p>
-        <p style="margin:2px 0;"><span style="background-color:#00FF00; color:black; padding:2px 6px;">⬛</span> 🎯 TOP CANDIDATES ({len(top_sites)})</p>
-        <p style="margin:2px 0;">⭐ Exploration Sites</p>
-        <p style="margin:2px 0;">🔵 Existing Wells</p>
-        <p style="margin:2px 0;">🏙️ UK Cities (Reference)</p>
+        <p style="margin:10px 0 6px 0; font-weight:bold; font-size:12px;">Key Features:</p>
+        <div style="margin:3px 0;">
+            <span style="display:inline-block; width:12px; height:12px; background-color:darkgreen; border:2px solid gold; border-radius:50%; margin-right:5px;"></span>
+            <span style="font-size:10px;">⭐ Top Exploration Sites ({len(top_sites)})</span>
+        </div>
+        <div style="margin:3px 0;">
+            <span style="display:inline-block; width:6px; height:6px; background-color:white; border:1px solid black; border-radius:50%; margin-right:5px;"></span>
+            <span style="font-size:10px;">🏙️ UK Cities</span>
+        </div>
+        <div style="margin:3px 0;">
+            <span style="display:inline-block; width:4px; height:4px; background-color:lightblue; border:1px solid navy; border-radius:50%; margin-right:5px;"></span>
+            <span style="font-size:10px;">⚙️ Existing Wells</span>
+        </div>
         
-        <p style="margin:8px 0 0 0; font-size:10px; font-style:italic;">
-        Showing {len(sampled_grid)}/{len(all_grid)} grid cells<br>
-        Green offshore areas = Best for exploration
+        <hr style="margin: 8px 0;">
+        <p style="margin:3px 0; font-size:9px;"><b>Analysis:</b> {total_markers} representative points from {len(all_grid)} total</p>
+        <p style="margin:3px 0; font-size:9px;"><b>MCDA Weights:</b> {weights_display}</p>
+        <p style="margin:6px 0 0 0; font-size:9px; font-style:italic; color:#666;">
+        Shows stratified sample including all suitability levels
         </p>
         </div>
         '''
         m.get_root().html.add_child(folium.Element(legend_html))
         
-        # Add layer control
         folium.LayerControl().add_to(m)
         
         map_html = m.get_root().render()
         map_size_mb = len(map_html) / (1024 * 1024)
-        print(f"DEBUG: Generated UK-centered map HTML size: {map_size_mb:.2f} MB")
+        print(f"DEBUG: Generated strategic sampling map HTML size: {map_size_mb:.2f} MB")
         
         return map_html
         
     except Exception as e:
-        print(f"ERROR in UK-centered map creation: {e}")
+        print(f"ERROR in strategic sampling map creation: {e}")
         import traceback
         traceback.print_exc()
-        return f'<div style="height: 400px; color: red; text-align: center; padding-top: 150px;">Map creation failed: {str(e)}</div>'
+        return f'<div style="height: 400px; color: red; text-align: center; padding-top: 150px;">Strategic sampling map creation failed: {str(e)}</div>'
+
 
 
 def plan_low_impact_exploration_sites(run_context: RunContext[DataSourceTracker],

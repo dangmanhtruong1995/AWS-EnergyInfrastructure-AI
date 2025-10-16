@@ -36,60 +36,233 @@ class ExplorationGridSystem:
         self.scores = {}
         
     def create_grid(self) -> gpd.GeoDataFrame:
-        """Create uniform grid over study area."""
-        print(f"Creating {self.cell_size_km}km grid over UKCS...")
+        """Vectorized grid creation using global land mask for better performance."""
+        print(f"Creating vectorized offshore grid...")
         
-        # Calculate grid dimensions
+        try:
+            from global_land_mask import globe
+        except ImportError:
+            return self.create_grid_fallback()
+        
+        # Create coordinate arrays
         lat_range = self.bounds['max_lat'] - self.bounds['min_lat']
         lon_range = self.bounds['max_lon'] - self.bounds['min_lon']
         
         n_lat_cells = int(np.ceil(lat_range / self.cell_size_degrees))
         n_lon_cells = int(np.ceil(lon_range / self.cell_size_degrees))
         
-        print(f"Grid dimensions: {n_lat_cells} x {n_lon_cells} = {n_lat_cells * n_lon_cells} cells")
+        # Create grid of center coordinates
+        lat_centers = np.linspace(
+            self.bounds['min_lat'] + self.cell_size_degrees/2,
+            self.bounds['max_lat'] - self.cell_size_degrees/2,
+            n_lat_cells
+        )
+        lon_centers = np.linspace(
+            self.bounds['min_lon'] + self.cell_size_degrees/2,
+            self.bounds['max_lon'] - self.cell_size_degrees/2,
+            n_lon_cells
+        )
         
-        # Create grid cells
+        # Create meshgrid
+        lon_grid, lat_grid = np.meshgrid(lon_centers, lat_centers)
+        
+        print(f"Checking {lat_grid.size} grid points with land mask...")
+        
+        # Vectorized land mask check (much faster!)
+        is_water_grid = globe.is_ocean(lat_grid, lon_grid)
+        
+        # Extract only water cells
+        water_indices = np.where(is_water_grid)
+        water_lats = lat_grid[water_indices]
+        water_lons = lon_grid[water_indices]
+        
+        print(f"Found {len(water_lats)} offshore cells from {lat_grid.size} total")
+        
+        # Create grid cells for water locations
+        grid_cells = []
+        for idx, (center_lat, center_lon) in enumerate(zip(water_lats, water_lons)):
+            min_lat = center_lat - self.cell_size_degrees/2
+            max_lat = center_lat + self.cell_size_degrees/2
+            min_lon = center_lon - self.cell_size_degrees/2
+            max_lon = center_lon + self.cell_size_degrees/2
+            
+            cell_polygon = Polygon([
+                (min_lon, min_lat), (max_lon, min_lat),
+                (max_lon, max_lat), (min_lon, max_lat),
+                (min_lon, min_lat)
+            ])
+
+            grid_cells.append({
+                'cell_id': idx,
+                'grid_i': water_indices[0][idx],
+                'grid_j': water_indices[1][idx], 
+                'center_lat': center_lat,
+                'center_lon': center_lon,
+                'geometry': cell_polygon
+            })
+
+        self.grid_gdf = gpd.GeoDataFrame(grid_cells, crs='EPSG:4326')
+        print(f"Vectorized land mask complete: {len(self.grid_gdf)} offshore cells")
+        
+        return self.grid_gdf
+
+        # return self.create_sophisticated_offshore_grid()
+        # """Create uniform grid over study area."""
+        # print(f"Creating {self.cell_size_km}km grid over UKCS...")
+        
+        # # Calculate grid dimensions
+        # lat_range = self.bounds['max_lat'] - self.bounds['min_lat']
+        # lon_range = self.bounds['max_lon'] - self.bounds['min_lon']
+        
+        # n_lat_cells = int(np.ceil(lat_range / self.cell_size_degrees))
+        # n_lon_cells = int(np.ceil(lon_range / self.cell_size_degrees))
+        
+        # print(f"Grid dimensions: {n_lat_cells} x {n_lon_cells} = {n_lat_cells * n_lon_cells} cells")
+        
+        # # Create grid cells
+        # grid_cells = []
+        # cell_id = 0
+        
+        # for i in range(n_lat_cells):
+        #     for j in range(n_lon_cells):
+        #         # Cell bounds
+        #         min_lat = self.bounds['min_lat'] + i * self.cell_size_degrees
+        #         max_lat = min_lat + self.cell_size_degrees
+        #         min_lon = self.bounds['min_lon'] + j * self.cell_size_degrees
+        #         max_lon = min_lon + self.cell_size_degrees
+                
+        #         # Create polygon
+        #         cell_polygon = Polygon([
+        #             (min_lon, min_lat),
+        #             (max_lon, min_lat),
+        #             (max_lon, max_lat),
+        #             (min_lon, max_lat),
+        #             (min_lon, min_lat)
+        #         ])
+                
+        #         # Calculate center point
+        #         center_lat = (min_lat + max_lat) / 2
+        #         center_lon = (min_lon + max_lon) / 2
+                
+        #         grid_cells.append({
+        #             'cell_id': cell_id,
+        #             'grid_i': i,
+        #             'grid_j': j,
+        #             'center_lat': center_lat,
+        #             'center_lon': center_lon,
+        #             'geometry': cell_polygon
+        #         })
+                
+        #         cell_id += 1
+        
+        # # Create GeoDataFrame
+        # self.grid_gdf = gpd.GeoDataFrame(grid_cells, crs='EPSG:4326')
+        # print(f"Created grid with {len(self.grid_gdf)} cells")
+        
+        # return self.grid_gdf
+
+    
+    def create_sophisticated_offshore_grid(self) -> gpd.GeoDataFrame:
+        """Create grid using existing offshore infrastructure as a mask."""
+        print(f"Creating sophisticated offshore grid...")
+        
+        # First create the full grid
+        full_grid = self.create_full_grid_internal()
+        
+        # Load existing offshore infrastructure
+        try:
+            df_wells = load_data_and_process("wells")
+            df_fields = load_data_and_process("offshore_fields")
+            df_pipelines = load_data_and_process("pipelines")
+            
+            # Create a buffer around all offshore infrastructure
+            utm_crs = full_grid.estimate_utm_crs()
+            
+            # Convert infrastructure to UTM
+            wells_utm = df_wells.to_crs(utm_crs)
+            fields_utm = df_fields.to_crs(utm_crs)
+            
+            # Create large buffer around existing infrastructure (50km)
+            buffer_distance = 50000  # 50km in meters
+            
+            infrastructure_zones = []
+            
+            # Buffer around wells
+            wells_buffered = wells_utm.buffer(buffer_distance).unary_union
+            infrastructure_zones.append(wells_buffered)
+            
+            # Buffer around fields  
+            fields_buffered = fields_utm.buffer(buffer_distance).unary_union
+            infrastructure_zones.append(fields_buffered)
+            
+            # Combine all zones
+            from shapely.ops import unary_union
+            combined_offshore_zone = unary_union(infrastructure_zones)
+            
+            # Convert back to WGS84
+            import geopandas as gpd
+            from shapely.geometry import mapping
+            offshore_zone_gdf = gpd.GeoDataFrame([1], geometry=[combined_offshore_zone], crs=utm_crs)
+            offshore_zone_gdf = offshore_zone_gdf.to_crs('EPSG:4326')
+            
+            # Filter grid to only cells within offshore zones
+            grid_utm = full_grid.to_crs(utm_crs)
+            offshore_cells = gpd.sjoin(grid_utm, offshore_zone_gdf.to_crs(utm_crs), predicate='within')
+            
+            # Convert back to WGS84
+            self.grid_gdf = offshore_cells.to_crs('EPSG:4326')
+            print(f"Sophisticated filtering: {len(self.grid_gdf)} offshore cells from {len(full_grid)} total")
+            
+        except Exception as e:
+            print(f"Sophisticated filtering failed: {e}, using simple offshore bounds")
+            return self.create_offshore_grid()
+        
+        return self.grid_gdf
+
+    def create_full_grid_internal(self) -> gpd.GeoDataFrame:
+        """Internal method to create full grid without filtering."""
+        # This is your original create_grid logic
+        lat_range = self.bounds['max_lat'] - self.bounds['min_lat']
+        lon_range = self.bounds['max_lon'] - self.bounds['min_lon']
+        
+        n_lat_cells = int(np.ceil(lat_range / self.cell_size_degrees))
+        n_lon_cells = int(np.ceil(lon_range / self.cell_size_degrees))
+        
         grid_cells = []
         cell_id = 0
         
         for i in range(n_lat_cells):
             for j in range(n_lon_cells):
-                # Cell bounds
                 min_lat = self.bounds['min_lat'] + i * self.cell_size_degrees
                 max_lat = min_lat + self.cell_size_degrees
                 min_lon = self.bounds['min_lon'] + j * self.cell_size_degrees
                 max_lon = min_lon + self.cell_size_degrees
                 
-                # Create polygon
-                cell_polygon = Polygon([
-                    (min_lon, min_lat),
-                    (max_lon, min_lat),
-                    (max_lon, max_lat),
-                    (min_lon, max_lat),
-                    (min_lon, min_lat)
-                ])
-                
-                # Calculate center point
                 center_lat = (min_lat + max_lat) / 2
                 center_lon = (min_lon + max_lon) / 2
                 
+                cell_polygon = Polygon([
+                    (min_lon, min_lat), (max_lon, min_lat),
+                    (max_lon, max_lat), (min_lon, max_lat),
+                    (min_lon, min_lat)
+                ])
+                
                 grid_cells.append({
                     'cell_id': cell_id,
-                    'grid_i': i,
-                    'grid_j': j,
+                    'grid_i': i, 'grid_j': j,
                     'center_lat': center_lat,
                     'center_lon': center_lon,
                     'geometry': cell_polygon
                 })
-                
                 cell_id += 1
         
-        # Create GeoDataFrame
-        self.grid_gdf = gpd.GeoDataFrame(grid_cells, crs='EPSG:4326')
-        print(f"Created grid with {len(self.grid_gdf)} cells")
-        
-        return self.grid_gdf
-    
+        return gpd.GeoDataFrame(grid_cells, crs='EPSG:4326')
+
+
+
+
+
+
     def calculate_seismic_score(self, radius_km: float = 25.0) -> np.ndarray:
         """
         Calculate seismic risk score for each grid cell.
