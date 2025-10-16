@@ -259,10 +259,6 @@ class ExplorationGridSystem:
         return gpd.GeoDataFrame(grid_cells, crs='EPSG:4326')
 
 
-
-
-
-
     def calculate_seismic_score(self, radius_km: float = 25.0) -> np.ndarray:
         """
         Calculate seismic risk score for each grid cell.

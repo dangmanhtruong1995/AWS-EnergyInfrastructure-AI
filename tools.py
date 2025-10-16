@@ -2557,7 +2557,8 @@ def plan_global_wind_farm_sites(run_context: RunContext[DataSourceTracker],
             distance_scores = planner.calculate_distance_to_shore_score()
         
         # Environmental score (simplified)
-        env_scores = np.random.uniform(0.4, 0.8, len(planner.grid_gdf))
+        # env_scores = np.random.uniform(0.4, 0.8, len(planner.grid_gdf))
+        env_scores = planner.calculate_environmental_sensitivity_score_for_windfarm()
         
         # Normalize weights
         total_weight = wind_resource_weight + environmental_weight + economic_weight + operational_weight

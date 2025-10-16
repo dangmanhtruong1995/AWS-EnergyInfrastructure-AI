@@ -260,6 +260,7 @@ def generate_data_source_footer(used_sources: Set[str]) -> str:
 # Plan low-impact exploration sites in the North Sea with 10 kilometer grid cells
 # Very well, now I want economic criterion to be doubled.
 # Explore potential wind farm sites in Africa which have low impact on the environment while having highest economic potential, with 20 kilometer grid cells
+# Use economic focus for North Sea wind farms but increase environmental weight by 0.2
 # === Gradio Frontend ===
 def create_enhanced_interface():
     # Custom CSS for better styling

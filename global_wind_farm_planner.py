@@ -358,6 +358,77 @@ class GlobalWindFarmPlanner(ExplorationGridSystem):
         self.scores['distance_to_shore'] = scores
         print(f"Distance to shore scoring complete (fast). Best score: {scores.max():.3f}")
         return scores
+    
+    def calculate_environmental_sensitivity_score_for_windfarm(self) -> np.ndarray:
+        """
+        Calculate environmental sensitivity for wind farm development.
+        Higher score = higher environmental sensitivity = worse for development.
+        """
+        print("Calculating environmental sensitivity scores for wind farms...")
+        
+        scores = np.zeros(len(self.grid_gdf))
+        
+        for idx, cell in self.grid_gdf.iterrows():
+            lat = cell['center_lat']
+            lon = cell['center_lon']
+            
+            # Base environmental sensitivity
+            sensitivity = 0.3  # Base level
+            
+            # 1. Distance from coast (closer = higher sensitivity due to coastal ecosystems)
+            # Estimate distance from coast using longitude (rough approximation)
+            if self.region == "africa":
+                # African coast references
+                west_coast_dist = abs(lon - (-10))  # Rough Atlantic coast
+                east_coast_dist = abs(lon - 40)     # Rough Indian Ocean coast
+                coastal_dist = min(west_coast_dist, east_coast_dist)
+            elif self.region == "europe":
+                # European waters
+                coastal_dist = abs(lon - 0)  # Distance from roughly European coast
+            else:
+                coastal_dist = 5  # Default assumption
+            
+            # Closer to coast = higher sensitivity
+            coastal_sensitivity = max(0, 0.4 - (coastal_dist * 0.05))
+            
+            # 2. Latitude-based ecosystem sensitivity
+            if self.region == "africa":
+                if -5 <= lat <= 5:  # Equatorial waters - high marine biodiversity
+                    ecosystem_sensitivity = 0.4
+                elif lat < -20 or lat > 20:  # Temperate waters
+                    ecosystem_sensitivity = 0.2
+                else:  # Subtropical
+                    ecosystem_sensitivity = 0.3
+            elif self.region == "europe":
+                if 54 <= lat <= 62:  # North Sea - important for bird migration
+                    ecosystem_sensitivity = 0.3
+                else:
+                    ecosystem_sensitivity = 0.2
+            else:
+                ecosystem_sensitivity = 0.25
+            
+            # 3. Water depth sensitivity (estimated from distance from coast)
+            estimated_depth = coastal_dist * 15  # Rough depth estimate
+            if estimated_depth < 10:  # Too shallow
+                depth_sensitivity = 0.3
+            elif estimated_depth > 100:  # Too deep
+                depth_sensitivity = 0.2
+            else:  # Optimal depth range
+                depth_sensitivity = 0.1
+            
+            # Combine all factors
+            total_sensitivity = (
+                sensitivity +
+                coastal_sensitivity +
+                ecosystem_sensitivity +
+                depth_sensitivity
+            )
+            
+            scores[idx] = min(1.0, total_sensitivity)
+        
+        print(f"Environmental sensitivity scoring complete. Average: {scores.mean():.3f}")
+        return scores
+
 
 
 def create_wind_farm_map(top_sites: gpd.GeoDataFrame,
