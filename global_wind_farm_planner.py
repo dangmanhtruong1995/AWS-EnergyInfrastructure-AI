@@ -1,3 +1,4 @@
+import os
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -47,10 +48,23 @@ class GlobalWindFarmPlanner(ExplorationGridSystem):
         
         super().__init__(cell_size_km=cell_size_km, study_bounds=self.bounds)
         
-        copernicusmarine.login(
-            username="tdangmanh",
-            password="aA123456",
-            force_overwrite=True)
+        # copernicusmarine.login(
+        #     username="tdangmanh",
+        #     password="aA123456",
+        #     force_overwrite=True)
+
+        copernicus_username = os.getenv('COPERNICUS_USERNAME')
+        copernicus_password = os.getenv('COPERNICUS_PASSWORD')
+        if copernicus_username and copernicus_password:
+            copernicusmarine.login(
+                username=copernicus_username,
+                password=copernicus_password,
+                force_overwrite=True
+            )
+            print("Copernicus Marine login successful")
+        else:
+            print("Copernicus credentials not found in environment variables")
+            self.data_availability['using_fallback'] = True
 
         # Data cache
         self.wind_data = None

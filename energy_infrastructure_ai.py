@@ -35,6 +35,8 @@ region = boto_session.region_name
 agentcore_runtime = Runtime()
 agent_name = "agentcore_pydantic_bedrockclaude_v11"
 
+
+
 # Step 1: Configure (generates standard Dockerfile)
 response = agentcore_runtime.configure(
     entrypoint="agent.py",
@@ -49,7 +51,12 @@ response = agentcore_runtime.configure(
 dockerfile_content = open("Dockerfile", "r").read()
 
 # Insert GDAL installation after FROM line
-gdal_install = """
+copernicus_username = os.getenv('COPERNICUS_USERNAME')
+copernicus_password = os.getenv('COPERNICUS_PASSWORD')
+print("COPERNICUS_USERNAME")
+print(copernicus_username)
+
+gdal_install = f"""
 RUN apt-get update && apt-get install -y \\
     gdal-bin \\
     libgdal-dev \\
@@ -62,7 +69,8 @@ RUN apt-get update && apt-get install -y \\
 ENV GDAL_CONFIG=/usr/bin/gdal-config
 ENV CPLUS_INCLUDE_PATH=/usr/include/gdal
 ENV C_INCLUDE_PATH=/usr/include/gdal
-
+ENV COPERNICUS_USERNAME={copernicus_username}
+ENV COPERNICUS_PASSWORD={copernicus_password}
 """
 
 lines = dockerfile_content.split('\n')
@@ -109,7 +117,8 @@ except Exception as e:
     print("You may need to find the correct bucket name")
 
 # Step 4: Now launch
-launch_result = agentcore_runtime.launch()
+launch_result = agentcore_runtime.launch(
+)
 print(launch_result)
 
 

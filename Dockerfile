@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y \
 ENV GDAL_CONFIG=/usr/bin/gdal-config
 ENV CPLUS_INCLUDE_PATH=/usr/include/gdal
 ENV C_INCLUDE_PATH=/usr/include/gdal
-
+ENV COPERNICUS_USERNAME=tdangmanh
+ENV COPERNICUS_PASSWORD=aA123456
 
 WORKDIR /app
 
