@@ -213,6 +213,84 @@ class GlobalWindFarmPlanner(ExplorationGridSystem):
             'longitude': lon_range
         })
     
+    def load_copernicus_wave_data_optimized(self, months_back: int = 3) -> Optional[xr.Dataset]:
+        """
+        Load wave data from Copernicus Marine Service.
+        """
+        print(f"Loading wave data for {self.region} ({months_back} months)...")
+        
+        try:
+            # end_date = datetime.now() - timedelta(days=30)
+            # start_date = end_date - timedelta(days=months_back * 30)
+
+            # Wave data is only available until end of 2020
+            end_date = datetime(2020, 12, 31)
+            start_date = end_date - timedelta(days=months_back * 30)
+            
+            # Load wave data - using global wave dataset
+            self.wave_data = copernicusmarine.open_dataset(
+                dataset_id='cmems_obs-wave_glo_phy-swh_my_multi-l4-0.5deg_P1D-i',
+                minimum_longitude=self.bounds['min_lon'],
+                maximum_longitude=self.bounds['max_lon'],
+                minimum_latitude=self.bounds['min_lat'],
+                maximum_latitude=self.bounds['max_lat'],
+                start_datetime=start_date.strftime('%Y-%m-%d'),
+                end_datetime=end_date.strftime('%Y-%m-%d')
+            )
+            
+            # Downsample for performance
+            print("Downsampling wave data to daily averages...")
+            self.wave_data = self.wave_data.resample(time='1D').mean()
+            
+            self.data_availability['wave_historical'] = True
+            print(f"Wave data loaded: {self.wave_data.dims}")
+            return self.wave_data
+            
+        except Exception as e:
+            print(f"Wave data unavailable: {e}")
+            print("Using synthetic wave data...")
+            self.data_availability['using_fallback'] = True
+            return self._create_synthetic_wave_data()
+
+    def _create_synthetic_wave_data(self) -> xr.Dataset:
+        """Create synthetic wave data as fallback."""
+        lat_step = max(0.25, (self.bounds['max_lat'] - self.bounds['min_lat']) / 50)
+        lon_step = max(0.25, (self.bounds['max_lon'] - self.bounds['min_lon']) / 50)
+        
+        lat_range = np.arange(self.bounds['min_lat'], self.bounds['max_lat'], lat_step)
+        lon_range = np.arange(self.bounds['min_lon'], self.bounds['max_lon'], lon_step)
+        time_range = pd.date_range('2023-01-01', periods=30, freq='D')
+        
+        lat_grid, lon_grid = np.meshgrid(lat_range, lon_range, indexing='ij')
+        
+        # Create realistic wave height patterns
+        if self.region == "africa":
+            # Atlantic side has higher waves
+            base_wave_height = 2.0 + np.where(lon_grid < 10, 1.0, 0.5) + abs(lat_grid) * 0.02
+        elif self.region == "europe":
+            # North Sea has moderate waves
+            base_wave_height = 1.5 + abs(lat_grid - 55) * 0.05
+        else:
+            base_wave_height = 2.0 + abs(lat_grid) * 0.03
+        
+        # Expand to time dimension
+        wave_height = np.broadcast_to(base_wave_height[np.newaxis, :, :], 
+                                    (len(time_range), len(lat_range), len(lon_range)))
+        
+        # Add variation
+        np.random.seed(42)
+        wave_height = wave_height + np.random.normal(0, 0.3, wave_height.shape)
+        wave_height = np.maximum(wave_height, 0.5)  # Minimum wave height
+        
+        return xr.Dataset({
+            'VHM0': (('time', 'latitude', 'longitude'), wave_height)  # Significant wave height
+        }, coords={
+            'time': time_range,
+            'latitude': lat_range,
+            'longitude': lon_range
+        })
+
+
     def calculate_wind_resource_score_vectorized(self) -> np.ndarray:
         """Vectorized wind resource calculation using spatial interpolation."""
         print("Calculating wind resource scores (vectorized)...")
@@ -266,51 +344,86 @@ class GlobalWindFarmPlanner(ExplorationGridSystem):
         return scores
     
     def calculate_wave_operational_score_fast(self) -> np.ndarray:
-        """Fast wave scoring using simplified patterns."""
-        print("Calculating wave operational scores (fast method)...")
+        """Calculate wave scores using VAVH_INST from Copernicus data."""
+        print("Calculating wave operational scores (using Copernicus data)...")
         
-        # Use simplified distance-based wave patterns instead of loading large datasets
-        scores = np.zeros(len(self.grid_gdf))
+        if self.wave_data is None:
+            self.load_copernicus_wave_data_optimized()
         
-        # Vectorized distance to coast calculation
-        grid_coords = np.column_stack([
-            self.grid_gdf['center_lat'].values,
-            self.grid_gdf['center_lon'].values
-        ])
+        # Use VAVH_INST variable and apply flag filtering like your code
+        swh = self.wave_data["VAVH_INST"]
+        flag = self.wave_data["VAVH_INST_FLAG"]
+        swh_good = swh.where(flag == 1)
         
-        # Simplified coastal distance calculation
-        coast_distances = self._vectorized_coast_distance(grid_coords)
+        wave_height_mean = swh_good.mean(dim='time')
         
-        # Wave height model: generally increases with distance from coast and latitude
-        for i, (lat, lon, coast_dist) in enumerate(zip(
-            self.grid_gdf['center_lat'], 
-            self.grid_gdf['center_lon'], 
-            coast_distances
-        )):
-            # Simple wave height model
-            base_wave_height = 1.5 + coast_dist * 0.02 + abs(lat) * 0.03
-            
-            # Regional adjustments
-            if self.region == "africa":
-                if lon < 10:  # Atlantic side
-                    base_wave_height += 0.5
-            elif self.region == "europe":
-                if lat > 55:  # North Sea/Norwegian Sea
-                    base_wave_height += 0.8
-            
-            # Convert to operational score (lower waves = higher score)
-            if base_wave_height < 2:
-                wave_score = 1.0
-            elif base_wave_height < 4:
-                wave_score = 1.0 - (base_wave_height - 2) / 2 * 0.6
-            else:
-                wave_score = 0.4 - min((base_wave_height - 4) / 4 * 0.3, 0.3)
-            
-            scores[i] = max(0, wave_score)
+        grid_lats = self.grid_gdf['center_lat'].values
+        grid_lons = self.grid_gdf['center_lon'].values
+        
+        wave_mean_interp = wave_height_mean.interp(
+            latitude=xr.DataArray(grid_lats, dims='points'),
+            longitude=xr.DataArray(grid_lons, dims='points'),
+            method='linear'
+        ).values
+        
+        scores = np.where(
+            wave_mean_interp > 4.0, 0.1,
+            np.where(
+                wave_mean_interp < 1.0, 0.8,
+                1.0 - (wave_mean_interp - 1.0) / 3.0 * 0.7
+            )
+        )
+        
+        scores = np.nan_to_num(scores, nan=0.5)
         
         self.scores['wave_operational'] = scores
-        print(f"Wave operational scoring complete (fast). Best score: {scores.max():.3f}")
+        print(f"Wave operational scoring complete. Best score: {scores.max():.3f}")
         return scores
+        # """Fast wave scoring using simplified patterns."""
+        # print("Calculating wave operational scores (fast method)...")
+        
+        # # Use simplified distance-based wave patterns instead of loading large datasets
+        # scores = np.zeros(len(self.grid_gdf))
+        
+        # # Vectorized distance to coast calculation
+        # grid_coords = np.column_stack([
+        #     self.grid_gdf['center_lat'].values,
+        #     self.grid_gdf['center_lon'].values
+        # ])
+        
+        # # Simplified coastal distance calculation
+        # coast_distances = self._vectorized_coast_distance(grid_coords)
+        
+        # # Wave height model: generally increases with distance from coast and latitude
+        # for i, (lat, lon, coast_dist) in enumerate(zip(
+        #     self.grid_gdf['center_lat'], 
+        #     self.grid_gdf['center_lon'], 
+        #     coast_distances
+        # )):
+        #     # Simple wave height model
+        #     base_wave_height = 1.5 + coast_dist * 0.02 + abs(lat) * 0.03
+            
+        #     # Regional adjustments
+        #     if self.region == "africa":
+        #         if lon < 10:  # Atlantic side
+        #             base_wave_height += 0.5
+        #     elif self.region == "europe":
+        #         if lat > 55:  # North Sea/Norwegian Sea
+        #             base_wave_height += 0.8
+            
+        #     # Convert to operational score (lower waves = higher score)
+        #     if base_wave_height < 2:
+        #         wave_score = 1.0
+        #     elif base_wave_height < 4:
+        #         wave_score = 1.0 - (base_wave_height - 2) / 2 * 0.6
+        #     else:
+        #         wave_score = 0.4 - min((base_wave_height - 4) / 4 * 0.3, 0.3)
+            
+        #     scores[i] = max(0, wave_score)
+        
+        # self.scores['wave_operational'] = scores
+        # print(f"Wave operational scoring complete (fast). Best score: {scores.max():.3f}")
+        # return scores
     
     def _vectorized_coast_distance(self, grid_coords: np.ndarray) -> np.ndarray:
         """Vectorized distance to coast calculation."""

@@ -28,10 +28,12 @@ def add_data_source(run_context, layer_list):
             run_context.deps.add_source("UKCS offshore fields data (https://www.arcgis.com/home/item.html?id=92b08a672721407ca90ed26e67514af8)")
         elif layer_name == "windfarms":
             run_context.deps.add_source("EMODNet active offshore wind farms data (https://emodnet.ec.europa.eu/)")
+        elif layer_name == "copernicus_wind":
+            run_context.deps.add_source("Copernicus Marine Data Service's Global Ocean Hourly Reprocessed Sea Surface Wind and Stress from Scatterometer and Model API, https://data.marine.copernicus.eu/product/WIND_GLO_PHY_L4_MY_012_006/description.")
+        elif layer_name == "copernicus_wave":
+            run_context.deps.add_source("Copernicus Marine Data Service's Global Ocean L 4 Significant Wave Height From Reprocessed Satellite Measurements API, https://data.marine.copernicus.eu/product/WAVE_GLO_PHY_SWH_L4_MY_014_007/description.")
 
     
-
-
 def load_data_and_process(layer_name: str):
     """
     Load and process datasets from S3.
