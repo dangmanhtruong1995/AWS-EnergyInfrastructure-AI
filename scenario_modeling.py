@@ -208,9 +208,13 @@ def run_mcda(target:str, obj_1: str, obj_2: str, obj_3: str, obj_4: str,
 
     df_rank["Coordinates"] = df_rank["geometry"].centroid
     df_rank = df_rank.drop('geometry', axis=1)
-    report = df_rank.to_string(index=False)
-    report = "REPORT OF 20 MOST RELEVANT POINTS FOUND DURING THE MULTI-CRITERIA DECISION ANALYSIS, ALONG WITH SCORES (lower score is better) \n\n" + report
+    # report = df_rank.to_string(index=False)
+    # report = "REPORT OF 20 MOST RELEVANT POINTS FOUND DURING THE MULTI-CRITERIA DECISION ANALYSIS, ALONG WITH SCORES (lower score is better) \n\n" + report
     
+    report = generate_mcda_detailed_report(
+        df_rank, target, obj_1, obj_2, obj_3, obj_4, w_1, w_2, w_3, w_4
+    )
+
     return report, df_rank
 
 
@@ -257,6 +261,174 @@ def run_scenario_analysis(scenario_name: str, adjust: dict = None):
     return report, df_rank, weights
 
 
+def generate_mcda_detailed_report(df_rank: gpd.GeoDataFrame, 
+                                 target: str, obj_1: str, obj_2: str, obj_3: str, obj_4: str,
+                                 w_1: float, w_2: float, w_3: float, w_4: float) -> str:
+    """Generate detailed MCDA report with proper formatting and analysis."""
+    
+    report_lines = []
+    
+    # Header
+    report_lines.append(f"# MULTI-CRITERIA DECISION ANALYSIS REPORT")
+    report_lines.append(f"## Analysis Target: {target.upper()}")
+    report_lines.append("=" * 60)
+    report_lines.append(f"**Analysis Date:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+    report_lines.append(f"**Total {target} Analyzed:** {len(df_rank)}")
+    report_lines.append("")
+    
+    # Criteria and weights
+    report_lines.append("## EVALUATION CRITERIA & WEIGHTS")
+    total_weight = w_1 + w_2 + w_3 + w_4
+    report_lines.append(f"- **{obj_1.title()}:** {w_1/total_weight:.1%} (weight: {w_1})")
+    report_lines.append(f"- **{obj_2.title()}:** {w_2/total_weight:.1%} (weight: {w_2})")
+    report_lines.append(f"- **{obj_3.title()}:** {w_3/total_weight:.1%} (weight: {w_3})")
+    report_lines.append(f"- **{obj_4.title()}:** {w_4/total_weight:.1%} (weight: {w_4})")
+    report_lines.append("")
+    report_lines.append("**Scoring Note:** Lower scores indicate better performance")
+    report_lines.append("")
+    
+    # Results summary
+    best_score = df_rank['Score'].min()
+    worst_score = df_rank['Score'].max()
+    avg_score = df_rank['Score'].mean()
+    
+    report_lines.append("## RESULTS OVERVIEW")
+    report_lines.append(f"- **Best Overall Score:** {best_score:.3f}")
+    report_lines.append(f"- **Average Score:** {avg_score:.3f}")
+    report_lines.append(f"- **Worst Score:** {worst_score:.3f}")
+    report_lines.append(f"- **Score Range:** {worst_score - best_score:.3f}")
+    report_lines.append("")
+    
+    # Performance categories
+    excellent_count = len(df_rank[df_rank['Score'] <= 0.3])
+    good_count = len(df_rank[(df_rank['Score'] > 0.3) & (df_rank['Score'] <= 0.5)])
+    fair_count = len(df_rank[(df_rank['Score'] > 0.5) & (df_rank['Score'] <= 0.7)])
+    poor_count = len(df_rank[df_rank['Score'] > 0.7])
+    
+    report_lines.append("## PERFORMANCE DISTRIBUTION")
+    report_lines.append(f"- **Excellent (≤0.3):** {excellent_count} {target}s")
+    report_lines.append(f"- **Good (0.3-0.5):** {good_count} {target}s")
+    report_lines.append(f"- **Fair (0.5-0.7):** {fair_count} {target}s")
+    report_lines.append(f"- **Poor (>0.7):** {poor_count} {target}s")
+    report_lines.append("")
+    
+    # Top performers table
+    report_lines.append("## TOP PERFORMING LOCATIONS")
+    report_lines.append("| Rank | Name | Overall Score | Safety | Environment | Technical | Economic | Coordinates |")
+    report_lines.append("|------|------|---------------|--------|-------------|-----------|----------|-------------|")
+    
+    # for _, row in df_rank.head(15).iterrows():
+    #     # Extract coordinates properly
+    #     if hasattr(row.geometry, 'centroid'):
+    #         coords = row.geometry.centroid
+    #         coord_str = f"{coords.y:.2f}°N, {abs(coords.x):.2f}°{'W' if coords.x < 0 else 'E'}"
+    #     else:
+    #         coord_str = "N/A"
+    for _, row in df_rank.head(15).iterrows():
+        # Extract coordinates properly
+        try:
+            if hasattr(row['geometry'], 'centroid'):
+                coords = row['geometry'].centroid
+                coord_str = f"{coords.y:.2f}°N, {abs(coords.x):.2f}°{'W' if coords.x < 0 else 'E'}"
+            elif hasattr(row['geometry'], 'y'):
+                coord_str = f"{row['geometry'].y:.2f}°N, {abs(row['geometry'].x):.2f}°{'W' if row['geometry'].x < 0 else 'E'}"
+            else:
+                coord_str = "N/A"
+        except:
+            coord_str = "N/A"
+        
+        # Performance indicator
+        score = row['Score']
+        if score <= 0.3:
+            indicator = "⭐"
+        elif score <= 0.5:
+            indicator = "✅"
+        elif score <= 0.7:
+            indicator = "⚠️"
+        else:
+            indicator = "❌"
+        
+        report_lines.append(
+            f"| {int(row['Rank'])} {indicator} | {row['Name']} | {score:.3f} | "
+            f"{row['safety_score']:.3f} | {row['environment_score']:.3f} | "
+            f"{row['technical_score']:.3f} | {row['economic_score']:.3f} | {coord_str} |"
+        )
+    
+    report_lines.append("")
+    
+    # Criteria analysis
+    report_lines.append("## DETAILED CRITERIA ANALYSIS")
+    
+    # Safety analysis
+    safety_avg = df_rank['safety_score'].mean()
+    safety_best = df_rank['safety_score'].min()
+    report_lines.append(f"### {obj_1.title()} Performance")
+    report_lines.append(f"- **Average Score:** {safety_avg:.3f}")
+    report_lines.append(f"- **Best Score:** {safety_best:.3f}")
+    if safety_avg < 0.3:
+        report_lines.append(f"- **Assessment:** Excellent {obj_1} conditions across the region")
+    elif safety_avg < 0.5:
+        report_lines.append(f"- **Assessment:** Good {obj_1} performance with some variation")
+    else:
+        report_lines.append(f"- **Assessment:** {obj_1.title()} concerns identified - requires attention")
+    report_lines.append("")
+    
+    # Environment analysis
+    env_avg = df_rank['environment_score'].mean()
+    env_best = df_rank['environment_score'].min()
+    report_lines.append(f"### {obj_2.title()} Performance")
+    report_lines.append(f"- **Average Score:** {env_avg:.3f}")
+    report_lines.append(f"- **Best Score:** {env_best:.3f}")
+    if env_avg < 0.3:
+        report_lines.append(f"- **Assessment:** Low {obj_2} impact across most locations")
+    elif env_avg < 0.5:
+        report_lines.append(f"- **Assessment:** Moderate {obj_2} considerations")
+    else:
+        report_lines.append(f"- **Assessment:** Significant {obj_2} factors require careful management")
+    report_lines.append("")
+    
+    # Recommendations
+    report_lines.append("## STRATEGIC RECOMMENDATIONS")
+    
+    if excellent_count > 0:
+        report_lines.append(f"**Immediate Development Opportunities ({excellent_count} sites):**")
+        top_sites = df_rank.head(min(5, excellent_count))['Name'].tolist()
+        report_lines.append(f"- Priority sites: {', '.join(top_sites[:3])}")
+        report_lines.append("- These locations show optimal performance across all criteria")
+        report_lines.append("- Proceed with detailed feasibility studies")
+        report_lines.append("")
+    
+    if good_count > 0:
+        report_lines.append(f"**Secondary Development Candidates ({good_count} sites):**")
+        report_lines.append("- Suitable for development with appropriate risk management")
+        report_lines.append("- Focus on addressing specific criterion weaknesses")
+        report_lines.append("")
+    
+    if poor_count > len(df_rank) * 0.5:
+        report_lines.append("**Regional Assessment:**")
+        report_lines.append("- High proportion of challenging locations identified")
+        report_lines.append("- Consider expanding analysis to adjacent regions")
+        report_lines.append("- Review weighting criteria for regional appropriateness")
+        report_lines.append("")
+    
+    # Next steps
+    report_lines.append("## RECOMMENDED NEXT STEPS")
+    report_lines.append("1. **Detailed Site Assessment:** Focus on top 5 ranked locations")
+    report_lines.append("2. **Risk Mitigation Planning:** Address specific criteria weaknesses")
+    report_lines.append("3. **Stakeholder Engagement:** Begin consultation for priority sites")
+    report_lines.append("4. **Regulatory Compliance:** Ensure alignment with licensing requirements")
+    report_lines.append("5. **Environmental Management:** Develop site-specific environmental plans")
+    report_lines.append("")
+    
+    # Footer
+    report_lines.append("---")
+    report_lines.append("*Analysis completed using Multi-Criteria Decision Analysis (MCDA)*")
+    report_lines.append(f"*Weighted scoring across {obj_1}, {obj_2}, {obj_3}, and {obj_4} criteria*")
+    report_lines.append("*Lower scores indicate better performance - prioritize top-ranked locations*")
+    
+    return "\n".join(report_lines)
+
+
 def main():
     report, df_rank, used_weights = run_scenario_analysis("economic_focus")
 
@@ -293,6 +465,7 @@ def main():
         w_1, w_2, w_3, w_4)
     """
     set_trace()
+
 
 if __name__ == "__main__":
     main()
