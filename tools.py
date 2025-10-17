@@ -44,125 +44,15 @@ from schemas import DataSourceTracker, GetWellEntryInput,\
 # from data_loader import get_coords
 # from seismic_analysis_python import SeismicDrillingAnalyzer
 from scenario_modeling import run_mcda, run_scenario_analysis
+from infrastructure_analysis import within_op, within_dist_op,\
+    generate_infrastructure_proximity_report,\
+    generate_within_operation_report
 from grid_system import ExplorationGridSystem
 from global_wind_farm_planner import GlobalWindFarmPlanner,\
     create_wind_farm_map, generate_wind_farm_report
 from get_location_region_bounds import _try_nominatim_with_boundingbox,\
     _try_nominatim_point_based, _get_bounds_from_coordinates,\
     _try_maritime_regions, _calculate_bounds_from_point
-
-def within_op(layer_1: str, layer_2:str) -> gpd.GeoDataFrame:
-    """ Perform a "within" operation, such as "Find all seismic events within licensed blocks".
-    Args:
-        layer_1: The first layer. For the example query "Find all seismic events within licensed blocks", the layer would be "seismic". The layer name should be chosen from the results of "get_available_data_sources".
-        layer_2: The second layer. For the example query "Find all seismic events within licensed blocks", the layer would be "licences". The layer name should be chosen from the results of "get_available_data_sources".
-    Return:
-        df_rank: A GeoPandas's GeoDataFrame which lists the matched entries.
-    """
-
-    df_dict = {}
-    df_dict[layer_1] = load_data_and_process(layer_1)
-    df_dict[layer_2] = load_data_and_process(layer_2)
-    
-    if isinstance(df_dict[layer_1], pd.DataFrame):
-        if 'Lon' in df_dict[layer_1].columns:
-            geometry = [Point(xy) for xy in zip(df_dict[layer_1].Lon, df_dict[layer_1].Lat)]
-            df_dict[layer_1] = df_dict[layer_1].drop(['Lon', 'Lat'], axis=1)
-        else:
-            geometry = df_dict[layer_1]["geometry"]
-        df_dict[layer_1] = gpd.GeoDataFrame(df_dict[layer_1], crs="EPSG:4326", geometry=geometry)
-
-    if isinstance(df_dict[layer_2], pd.DataFrame):
-        if 'Lon' in df_dict[layer_2].columns:
-            geometry = [Point(xy) for xy in zip(df_dict[layer_2].Lon, df_dict[layer_2].Lat)]
-            df_dict[layer_2] = df_dict[layer_2].drop(['Lon', 'Lat'], axis=1)
-        else:
-            geometry = df_dict[layer_2]["geometry"]
-        df_dict[layer_2] = gpd.GeoDataFrame(df_dict[layer_2], crs="EPSG:4326", geometry=geometry)
-
-    try:
-        utm_crs = df_dict[layer_1].estimate_utm_crs()
-        df_dict[layer_1] = df_dict[layer_1].to_crs(utm_crs)
-        df_dict[layer_2] = df_dict[layer_2].to_crs(utm_crs)
-    except:
-        pass
-
-    n_within = np.zeros(len(df_dict[layer_1]))
-    for idx in range(len(df_dict[layer_1])):
-        row_geometry = df_dict[layer_1]["geometry"].iloc[idx]
-        contains = row_geometry.contains(df_dict[layer_2]["geometry"])
-        n_within[idx] = np.sum(contains)
-
-    df_dict[layer_1]["Score"] = n_within.tolist()
-    df_rank = df_dict[layer_1].sort_values("Score", ascending=False).copy()    
-    df_rank = df_rank[df_rank["Score"] > 0]
-
-    try:
-        df_rank = df_rank.to_crs(epsg=4326)
-    except:
-        pass
-
-    return df_rank
-
-
-def within_dist_op(layer_1:str, layer_2:str, dist=10):
-    """ Perform a "within distance" operation, such as "Find all licencing blocks which are within 10 kilometres of pipelines".
-    Args:
-        layer_1: The first layer. For the example query "Find all licencing blocks which are within 10 kilometres of pipelines", the layer would be "licences". The layer name should be chosen from the results of "get_available_data_sources".
-        layer_2: The second layer. For the example query "Find all licencing blocks which are within 10 kilometres of pipelines", the layer would be "pipelines". The layer name should be chosen from the results of "get_available_data_sources".
-    Return:
-        df_rank: A GeoPandas's GeoDataFrame which lists the matched entries.
-    """
-    
-    df_dict = {}
-    df_dict[layer_1] = load_data_and_process(layer_1)
-    df_dict[layer_2] = load_data_and_process(layer_2)
-
-    if isinstance(df_dict[layer_1], pd.DataFrame):
-        if 'Lon' in df_dict[layer_1].columns:
-            geometry = [Point(xy) for xy in zip(df_dict[layer_1].Lon, df_dict[layer_1].Lat)]
-            df_dict[layer_1] = df_dict[layer_1].drop(['Lon', 'Lat'], axis=1)
-        else:
-            geometry = df_dict[layer_1]["geometry"]
-        df_dict[layer_1] = gpd.GeoDataFrame(df_dict[layer_1], crs="EPSG:4326", geometry=geometry)
-
-    if isinstance(df_dict[layer_2], pd.DataFrame):
-        if 'Lon' in df_dict[layer_2].columns:
-            geometry = [Point(xy) for xy in zip(df_dict[layer_2].Lon, df_dict[layer_2].Lat)]
-            df_dict[layer_2] = df_dict[layer_2].drop(['Lon', 'Lat'], axis=1)
-        else:
-            geometry = df_dict[layer_2]["geometry"]
-        df_dict[layer_2] = gpd.GeoDataFrame(df_dict[layer_2], crs="EPSG:4326", geometry=geometry)
-
-    try:
-        utm_crs = df_dict[layer_1].estimate_utm_crs()
-        df_dict[layer_1] = df_dict[layer_1].to_crs(utm_crs)
-        df_dict[layer_2] = df_dict[layer_2].to_crs(utm_crs)
-    except:
-        pass
-    
-    # Nearest join (one match per row in df1)
-    df_nearest = gpd.sjoin_nearest(
-        df_dict[layer_1], df_dict[layer_2],
-        how="left",
-        distance_col="Score",
-        max_distance=None  # set to dist if you want filtering here
-    )
-
-    # Convert meters → km
-    #df_nearest["Score"] = df_nearest["Score"] / 1000.0
-    df_nearest["Score"] = df_nearest["Score"] *1000.0
-    
-    # Align back to df1 index (handles duplicates safely)
-    df_dict[layer_1]["Score"] = df_nearest.groupby(level=0)["Score"].first()
-    df_rank = df_dict[layer_1][df_dict[layer_1]["Score"] <= dist].sort_values("Score")
-
-    try:
-        df_rank = df_rank.to_crs(epsg=4326)
-    except:
-        pass
-
-    return df_rank
 
 
 def analyse_and_plot_features_and_nearby_infrastructure(run_context: RunContext[DataSourceTracker], layer_1: str, layer_2: str, max_distance=10):
@@ -404,7 +294,7 @@ def analyse_and_plot_features_and_nearby_infrastructure(run_context: RunContext[
                     ).add_to(m)
                 points_added += 1
 
-            # Handle Polygon geometries - NEW
+            # Handle Polygon geometries
             elif geom.geom_type == 'Polygon':
                 # Extract exterior coordinates
                 exterior_coords = list(geom.exterior.coords)
@@ -508,9 +398,13 @@ def analyse_and_plot_features_and_nearby_infrastructure(run_context: RunContext[
         df_points_ranked = df_points_ranked.drop('ORIGINSTAT', axis=1)
     except:
         pass
-    report = df_points_ranked.to_string(index=False)
-    report = f"REPORT of {layer_1} assets which are close to {max_distance} kilometres of {layer_2} assets : \n\n" + report
+    # report = df_points_ranked.to_string(index=False)
+    # report = f"REPORT of {layer_1} assets which are close to {max_distance} kilometres of {layer_2} assets : \n\n" + report
     
+    report = generate_infrastructure_proximity_report(
+        df_points_ranked, layer_1, layer_2, max_distance, nearby_lines
+    )
+
     print(report)
     print()
 
@@ -703,8 +597,6 @@ def perform_scenario_analysis_then_plot(run_context: RunContext,
 
     print(run_context)
     print()
-
-    
 
     # Build adjust dict from parameters
     adjust = {}
@@ -1050,10 +942,12 @@ def analyse_and_plot_within_op(run_context: RunContext[DataSourceTracker], layer
     # Generate report
     df_rank["Coordinates"] = df_rank["geometry"].centroid
     df_rank = df_rank.drop('geometry', axis=1)
-    report = df_rank.to_string(index=False)
-    report = f"REPORT of {layer_1} features that contain {layer_2} features:\n\n" + report
+    # report = df_rank.to_string(index=False)
+    # report = f"REPORT of {layer_1} features that contain {layer_2} features:\n\n" + report
     
-    # return report
+    report = generate_within_operation_report(
+        df_rank, contained_layer2, layer_1, layer_2
+    )
 
     result = {
         'report': report,
