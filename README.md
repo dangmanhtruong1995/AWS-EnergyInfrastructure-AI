@@ -1,14 +1,3 @@
----
-title: GeoAnalysis AI
-emoji: 🧭
-colorFrom: yellow
-colorTo: purple
-sdk: gradio
-sdk_version: 5.42.0
-app_file: app.py
-pinned: false
----
-
 # GeoAnalysis AI: UK Energy Prospect Finder 
 An AI-powered geospatial analysis platform for energy infrastructure planning and risk assessment, built with AWS Bedrock AgentCore and advanced multi-criteria decision analysis (MCDA) capabilities. 
 
@@ -176,7 +165,7 @@ git push --force origin clean-main:main`
 
 10) Now the repo will be deployed. You can check that the logs would be similar to the followings: 
 
-    ===== Application Startup at 2025-10-18 10:06:50 =====
+>     ===== Application Startup at 2025-10-18 10:06:50 =====
     
     Entrypoint parsed: file=/home/user/app/agent.py, bedrock_agentcore_name=agent
     Memory configured with STM only
