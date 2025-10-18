@@ -40,7 +40,7 @@ The platform leverages comprehensive datasets from leading UK and European insti
 ## Deployed app
 The app is available [here](https://huggingface.co/spaces/dangmanhtruong1995/EnergyInfrastructureAI "here")
 
-A video showing how the app works is available here.
+A video showing how the app works is available [here](https://www.youtube.com/watch?v=bol3vI6WijU "here")
 
 ## Architecture Diagram
 
