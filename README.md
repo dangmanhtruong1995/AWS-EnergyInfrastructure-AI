@@ -42,6 +42,10 @@ The app is available [here](https://huggingface.co/spaces/dangmanhtruong1995/Ene
 
 A video showing how the app works is available here.
 
+## Architecture Diagram
+
+![screenshot](architecture_diagram/architecture_diagram.drawio.png)
+
 ## Setup instructions
 
 1) Install aws-cli: 
