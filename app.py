@@ -33,7 +33,7 @@ boto_session = Session()
 region = boto_session.region_name
 
 agentcore_runtime = Runtime()
-agent_name = "agentcore_pydantic_bedrockclaude_v11"
+agent_name = "agentcore_pydantic_bedrockclaude_v32"
 
 
 
@@ -118,6 +118,7 @@ except Exception as e:
 
 # Step 4: Now launch
 launch_result = agentcore_runtime.launch(
+    auto_update_on_conflict=True,
 )
 print(launch_result)
 
@@ -252,7 +253,6 @@ def generate_data_source_footer(used_sources: Set[str]) -> str:
         return footer.rstrip()  # Remove trailing newline
 
 
-# Identify areas in the UK with high seismic survey density but low recent drilling activity
 # Perform a multi-criteria decision analysis for the licensing blocks in the UK, rank by safety, environment, technical and economic.
 # Find all wells which are within 10 kilometres of existing pipelines
 # Next, I want you to identify seismic activities which are within 10 kilometres of licence blocks
@@ -260,12 +260,8 @@ def generate_data_source_footer(used_sources: Set[str]) -> str:
 # Now do it again, but with the technical weight doubled.
 # What are the available data sources ?
 # Show all seismic events which fall into offshore fields
-
 # Assess the risk for building an offshore wind farm near Aberdeen
 # What about Peterhead ?
-
-# Find all seismic events which are within 100 kilometres from existing wind farms
-
 # Plan low-impact exploration sites in the North Sea with 10 kilometer grid cells
 # Very well, now I want economic criterion to be doubled.
 # Explore potential wind farm sites in Africa which have low impact on the environment while having highest economic potential, with 20 kilometer grid cells
